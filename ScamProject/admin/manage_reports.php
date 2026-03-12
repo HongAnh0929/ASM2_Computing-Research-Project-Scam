@@ -111,9 +111,9 @@ ORDER BY created_at DESC
 
 <head>
 
-<title>Report Management</title>
+    <title>Report Management</title>
 
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
 
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 
@@ -215,7 +215,7 @@ ORDER BY created_at DESC
 </head>
 
 <body>
-<!-- SIDEBAR -->
+    <!-- SIDEBAR -->
 
     <div class="sidebar">
 
@@ -235,9 +235,9 @@ ORDER BY created_at DESC
             <span>All Users</span>
         </a>
 
-        <a href="manage_numbers.php"> 
-            <i class="bi bi-telephone"></i> 
-            <span>Phone Numbers</span> 
+        <a href="manage_numbers.php">
+            <i class="bi bi-telephone"></i>
+            <span>Phone Numbers</span>
         </a>
 
         <a href="manage_reports.php">
@@ -248,9 +248,9 @@ ORDER BY created_at DESC
         <p class="px-3 text-secondary mt-3">SYSTEM</p>
 
         <a href="manage_activity_logs.php">
-    <i class="bi bi-activity"></i>
-    <span>Activity Logs</span>
-</a>
+            <i class="bi bi-activity"></i>
+            <span>Activity Logs</span>
+        </a>
 
         <a href="../index.php">
             <i class="bi bi-box-arrow-left"></i>
@@ -294,53 +294,50 @@ ORDER BY created_at DESC
     </div>
 
     <div class="content">
- <div class="container mt-1">
+        <div class="container mt-1">
 
-<h2>Reported Numbers</h2>
+            <h2>Reported Numbers</h2>
 
-<div class="d-flex align-items-center justify-content-between mt-4 mb-3">
+            <div class="d-flex align-items-center justify-content-between mt-4 mb-3">
 
-<form method="GET" class="d-flex" style="max-width:400px; width:100%;">
+                <form method="GET" class="d-flex" style="max-width:400px; width:100%;">
 
-<input type="text"
-name="search"
-class="form-control me-2"
-placeholder="Search phone number"
-value="<?php echo $_GET['search'] ?? ''; ?>">
+                    <input type="text" name="search" class="form-control me-2" placeholder="Search phone number"
+                        value="<?php echo $_GET['search'] ?? ''; ?>">
 
-<button class="btn btn-primary me-2">
-<i class="bi bi-search"></i>
-</button>
+                    <button class="btn btn-primary me-2">
+                        <i class="bi bi-search"></i>
+                    </button>
 
-<a href="manage_reports.php" class="btn btn-secondary">
-Reset
-</a>
+                    <a href="manage_reports.php" class="btn btn-secondary">
+                        Reset
+                    </a>
 
-</form>
+                </form>
 
-</div>
+            </div>
 
-<table class="table table-bordered table-striped mt-4">
+            <table class="table table-bordered table-striped mt-4">
 
-<thead class="table-dark">
+                <thead class="table-dark">
 
-<tr>
+                    <tr>
 
-<th>ID</th>
-<th>Phone</th>
-<th>Reported By</th>
-<th>Reason</th>
-<th>Comment</th>
-<th>Date</th>
-<th>Action</th>
+                        <th>ID</th>
+                        <th>Phone</th>
+                        <th>Reported By</th>
+                        <th>Reason</th>
+                        <th>Comment</th>
+                        <th>Date</th>
+                        <th>Action</th>
 
-</tr>
+                    </tr>
 
-</thead>
+                </thead>
 
-<tbody>
+                <tbody>
 
-<?php
+                    <?php
 
 $result=mysqli_query($conn,"SELECT * FROM reports ORDER BY created_at DESC");
 
@@ -348,61 +345,60 @@ while($row=mysqli_fetch_assoc($result)){
 
 ?>
 
-<tr>
+                    <tr>
 
-<td><?php echo $row['id']; ?></td>
+                        <td><?php echo $row['id']; ?></td>
 
-<td><?php echo $row['phone']; ?></td>
+                        <td><?php echo $row['phone']; ?></td>
 
-<td>
-<span class="text-secondary">
-Anonymous
-</span>
-</td>
+                        <td>
+                            <span class="text-secondary">
+                                Anonymous
+                            </span>
+                        </td>
 
-<td style="max-width:200px;">
-<?php echo $row['report_reason']; ?>
-</td>
+                        <td style="max-width:200px;">
+                            <?php echo $row['report_reason']; ?>
+                        </td>
 
-<td><?php echo $row['comment']; ?></td>
+                        <td><?php echo $row['comment']; ?></td>
 
-<td><?php echo $row['created_at']; ?></td>
+                        <td><?php echo $row['created_at']; ?></td>
 
-<td>
+                        <td>
 
-<a href="?accept=<?php echo $row['id']; ?>"
-class="btn btn-success btn-sm"
-onclick="return confirm('Accept this report?')">
+                            <a href="?accept=<?php echo $row['id']; ?>" class="btn btn-success btn-sm"
+                                onclick="return confirm('Accept this report?')">
 
-<i class="bi bi-check-circle"></i> Accept
+                                <i class="bi bi-check-circle"></i> Accept
 
-</a>
+                            </a>
 
-<a href="?reject=<?php echo $row['id']; ?>"
-class="btn btn-danger btn-sm"
-onclick="return confirm('Reject this report?')">
+                            <a href="?reject=<?php echo $row['id']; ?>" class="btn btn-danger btn-sm"
+                                onclick="return confirm('Reject this report?')">
 
-<i class="bi bi-x-circle"></i> Reject
+                                <i class="bi bi-x-circle"></i> Reject
 
-</a>
+                            </a>
 
-</td>
+                        </td>
 
-</tr>
+                    </tr>
 
-<?php } ?>
+                    <?php } ?>
 
-</tbody>
+                </tbody>
 
-</table>
-<a href="admin_dashboard.php" class="btn btn-secondary">
+            </table>
+            <a href="admin_dashboard.php" class="btn btn-secondary">
                 Back
             </a>
 
-</div>       
-</div>
+        </div>
+    </div>
 
 </body>
+
 </html>
 
 <script>

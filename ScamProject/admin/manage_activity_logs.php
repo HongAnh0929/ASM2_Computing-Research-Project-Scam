@@ -74,6 +74,7 @@ $stmt->execute();
 
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -178,6 +179,7 @@ $stmt->execute();
     }
     </style>
 </head>
+
 <body>
     <!-- SIDEBAR -->
 
@@ -199,9 +201,9 @@ $stmt->execute();
             <span>All Users</span>
         </a>
 
-        <a href="manage_numbers.php"> 
-            <i class="bi bi-telephone"></i> 
-            <span>Phone Numbers</span> 
+        <a href="manage_numbers.php">
+            <i class="bi bi-telephone"></i>
+            <span>Phone Numbers</span>
         </a>
 
         <a href="manage_reports.php">
@@ -212,9 +214,9 @@ $stmt->execute();
         <p class="px-3 text-secondary mt-3">SYSTEM</p>
 
         <a href="manage_activity_logs.php">
-    <i class="bi bi-activity"></i>
-    <span>Activity Logs</span>
-</a>
+            <i class="bi bi-activity"></i>
+            <span>Activity Logs</span>
+        </a>
 
         <a href="../index.php">
             <i class="bi bi-box-arrow-left"></i>
@@ -258,46 +260,43 @@ $stmt->execute();
     </div>
 
     <div class="content">
- <div class="container mt-1">
+        <div class="container mt-1">
 
-<h2>Activity Logs</h2>
+            <h2>Activity Logs</h2>
 
-<form method="GET" class="mb-3 d-flex mt-4" style="max-width:400px;">
+            <form method="GET" class="mb-3 d-flex mt-4" style="max-width:400px;">
 
-<input type="text"
-name="search"
-class="form-control me-2"
-placeholder="Search phone number"
-value="<?php echo $_GET['search'] ?? ''; ?>">
+                <input type="text" name="search" class="form-control me-2" placeholder="Search phone number"
+                    value="<?php echo $_GET['search'] ?? ''; ?>">
 
-<button class="btn btn-primary">
-<i class="bi bi-search"></i>
-</button>
+                <button class="btn btn-primary">
+                    <i class="bi bi-search"></i>
+                </button>
 
-</form>
+            </form>
 
-    <table class="table table-bordered table-striped">
+            <table class="table table-bordered table-striped">
 
-<thead class="table-dark">
+                <thead class="table-dark">
 
-<tr>
+                    <tr>
 
-<th>ID</th>
-<th>User</th>
-<th>Role</th>
-<th>Action</th>
-<th>Target</th>
-<th>IP</th>
-<th>Browser</th>
-<th>Time</th>
+                        <th>ID</th>
+                        <th>User</th>
+                        <th>Role</th>
+                        <th>Action</th>
+                        <th>Target</th>
+                        <th>IP</th>
+                        <th>Browser</th>
+                        <th>Time</th>
 
-</tr>
+                    </tr>
 
-</thead>
+                </thead>
 
-<tbody>
+                <tbody>
 
-<?php while($row=mysqli_fetch_assoc($result)){ 
+                    <?php while($row=mysqli_fetch_assoc($result)){ 
 
 $rowClass="";
 
@@ -311,15 +310,15 @@ $rowClass="table-warning";
 
 ?>
 
-<tr class="<?php echo $rowClass; ?>">
+                    <tr class="<?php echo $rowClass; ?>">
 
-<td><?php echo $row['id']; ?></td>
+                        <td><?php echo $row['id']; ?></td>
 
-<td><?php echo $row['username']; ?></td>
+                        <td><?php echo $row['username']; ?></td>
 
-<td>
+                        <td>
 
-<?php
+                            <?php
 if($row['role']=="Admin"){
 echo '<span class="badge bg-danger">Admin</span>';
 }
@@ -330,36 +329,37 @@ elseif($row['role']=="Employee"){
 echo '<span class="badge bg-success">Employee</span>';
 }
 ?>
-</td>
+                        </td>
 
-<td><?php echo $row['action']; ?></td>
+                        <td><?php echo $row['action']; ?></td>
 
-<td><?php echo $row['target']; ?></td>
+                        <td><?php echo $row['target']; ?></td>
 
-<td><?php echo $row['ip_address']; ?></td>
+                        <td><?php echo $row['ip_address']; ?></td>
 
-<td style="max-width:200px;">
-<?php echo substr($row['user_agent'],0,40); ?>
-</td>
+                        <td style="max-width:200px;">
+                            <?php echo substr($row['user_agent'],0,40); ?>
+                        </td>
 
-<td><?php echo $row['created_at']; ?></td>
+                        <td><?php echo $row['created_at']; ?></td>
 
-</tr>
+                    </tr>
 
-<?php } ?>
+                    <?php } ?>
 
-</tbody>
+                </tbody>
 
-</table>
+            </table>
 
-<a href="admin_dashboard.php" class="btn btn-secondary">
+            <a href="admin_dashboard.php" class="btn btn-secondary">
                 Back
             </a>
 
-</div>
+        </div>
 
     </div>
 </body>
+
 </html>
 
 <script>

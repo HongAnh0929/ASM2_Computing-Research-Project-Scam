@@ -195,9 +195,9 @@ exit;
             <span>All Users</span>
         </a>
 
-        <a href="manage_numbers.php"> 
-            <i class="bi bi-telephone"></i> 
-            <span>Phone Numbers</span> 
+        <a href="manage_numbers.php">
+            <i class="bi bi-telephone"></i>
+            <span>Phone Numbers</span>
         </a>
 
         <a href="manage_reports.php">
@@ -208,9 +208,9 @@ exit;
         <p class="px-3 text-secondary mt-3">SYSTEM</p>
 
         <a href="manage_activity_logs.php">
-    <i class="bi bi-activity"></i>
-    <span>Activity Logs</span>
-</a>
+            <i class="bi bi-activity"></i>
+            <span>Activity Logs</span>
+        </a>
 
         <a href="../index.php">
             <i class="bi bi-box-arrow-left"></i>

@@ -74,17 +74,16 @@ exit;
 
 <head>
 
-<title>Phone Number Management</title>
+    <title>Phone Number Management</title>
 
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
 
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<style>
-
-body {
+    <style>
+    body {
         background: #fafcfe;
         font-family: Arial;
     }
@@ -174,14 +173,13 @@ body {
     .card {
         border-radius: 10px;
     }
-
-</style>
+    </style>
 
 </head>
 
 <body>
 
-   <!-- SIDEBAR -->
+    <!-- SIDEBAR -->
 
     <div class="sidebar">
 
@@ -201,9 +199,9 @@ body {
             <span>All Users</span>
         </a>
 
-        <a href="manage_numbers.php"> 
-            <i class="bi bi-telephone"></i> 
-            <span>Phone Numbers</span> 
+        <a href="manage_numbers.php">
+            <i class="bi bi-telephone"></i>
+            <span>Phone Numbers</span>
         </a>
 
         <a href="manage_reports.php">
@@ -214,9 +212,9 @@ body {
         <p class="px-3 text-secondary mt-3">SYSTEM</p>
 
         <a href="manage_activity_logs.php">
-    <i class="bi bi-activity"></i>
-    <span>Activity Logs</span>
-</a>
+            <i class="bi bi-activity"></i>
+            <span>Activity Logs</span>
+        </a>
 
         <a href="../index.php">
             <i class="bi bi-box-arrow-left"></i>
@@ -261,15 +259,15 @@ body {
 
     <div class="content">
 
-<div class="container mt-1">
+        <div class="container mt-1">
 
-<?php if($action == "list"){ ?>
+            <?php if($action == "list"){ ?>
 
-<h2>Phone Number Management</h2>
+            <h2>Phone Number Management</h2>
 
-<?php } ?>
+            <?php } ?>
 
-<?php
+            <?php
 
 /* ======================
 ADD NUMBER
@@ -278,41 +276,41 @@ ADD NUMBER
 if($action == "add"){
 ?>
 
-<h4>Add Phone Number</h4>
+            <h4>Add Phone Number</h4>
 
-<form method="POST">
+            <form method="POST">
 
-<label class="mt-3">Phone Number</label>
-<input type="text" name="phonenumber" class="form-control" required>
+                <label class="mt-3">Phone Number</label>
+                <input type="text" name="phonenumber" class="form-control" required>
 
-<label class="mt-3">Type</label>
-<select name="type" class="form-control">
-<option>Legitimate</option>
-<option>Scam</option>
-<option>Unknown</option>
-</select>
+                <label class="mt-3">Type</label>
+                <select name="type" class="form-control">
+                    <option>Legitimate</option>
+                    <option>Scam</option>
+                    <option>Unknown</option>
+                </select>
 
-<label class="mt-3">Country</label>
-<input type="text" name="country" class="form-control">
+                <label class="mt-3">Country</label>
+                <input type="text" name="country" class="form-control">
 
-<label class="mt-3">Description</label>
-<textarea name="description" class="form-control"></textarea>
+                <label class="mt-3">Description</label>
+                <textarea name="description" class="form-control"></textarea>
 
-<div class="mt-4 d-flex justify-content-between">
+                <div class="mt-4 d-flex justify-content-between">
 
-<button class="btn btn-success" name="add_number">
-Create
-</button>
+                    <button class="btn btn-success" name="add_number">
+                        Create
+                    </button>
 
-<a href="manage_numbers.php" class="btn btn-secondary">
-Back
-</a>
+                    <a href="manage_numbers.php" class="btn btn-secondary">
+                        Back
+                    </a>
 
-</div>
+                </div>
 
-</form>
+            </form>
 
-<?php
+            <?php
 }
 
 
@@ -330,47 +328,42 @@ mysqli_query($conn,"SELECT * FROM phonenumbers WHERE id='$id'")
 
 ?>
 
-<h4>Edit Phone Number</h4>
+            <h4>Edit Phone Number</h4>
 
-<form method="POST">
+            <form method="POST">
 
-<input type="hidden" name="id" value="<?php echo $number['id'] ?>">
+                <input type="hidden" name="id" value="<?php echo $number['id'] ?>">
 
-<label>Phone Number</label>
-<input type="text" name="phonenumber"
-value="<?php echo $number['phonenumber'] ?>"
-class="form-control">
+                <label>Phone Number</label>
+                <input type="text" name="phonenumber" value="<?php echo $number['phonenumber'] ?>" class="form-control">
 
-<label class="mt-3">Type</label>
+                <label class="mt-3">Type</label>
 
-<select name="type" class="form-control">
+                <select name="type" class="form-control">
 
-<option <?php if($number['type']=="Legitimate") echo "selected"; ?>>Legitimate</option>
-<option <?php if($number['type']=="Scam") echo "selected"; ?>>Scam</option>
-<option <?php if($number['type']=="Unknown") echo "selected"; ?>>Unknown</option>
+                    <option <?php if($number['type']=="Legitimate") echo "selected"; ?>>Legitimate</option>
+                    <option <?php if($number['type']=="Scam") echo "selected"; ?>>Scam</option>
+                    <option <?php if($number['type']=="Unknown") echo "selected"; ?>>Unknown</option>
 
-</select>
+                </select>
 
-<label class="mt-3">Country</label>
-<input type="text" name="country"
-value="<?php echo $number['country'] ?>"
-class="form-control">
+                <label class="mt-3">Country</label>
+                <input type="text" name="country" value="<?php echo $number['country'] ?>" class="form-control">
 
-<label class="mt-3">Description</label>
-<textarea name="description"
-class="form-control"><?php echo $number['description'] ?></textarea>
+                <label class="mt-3">Description</label>
+                <textarea name="description" class="form-control"><?php echo $number['description'] ?></textarea>
 
-<button class="btn btn-primary mt-4" name="update_number">
-Update
-</button>
+                <button class="btn btn-primary mt-4" name="update_number">
+                    Update
+                </button>
 
-<a href="manage_numbers.php" class="btn btn-secondary mt-4">
-Back
-</a>
+                <a href="manage_numbers.php" class="btn btn-secondary mt-4">
+                    Back
+                </a>
 
-</form>
+            </form>
 
-<?php
+            <?php
 }
 
 
@@ -401,61 +394,58 @@ $result=mysqli_query($conn,$sql);
 
 ?>
 
-<div class="d-flex justify-content-between mt-4">
+            <div class="d-flex justify-content-between mt-4">
 
-<form method="GET" class="d-flex">
+                <form method="GET" class="d-flex">
 
-<input type="text"
-name="keyword"
-class="form-control me-3"
-placeholder="Search phone number..."
-value="<?php echo $keyword ?>">
+                    <input type="text" name="keyword" class="form-control me-3" placeholder="Search phone number..."
+                        value="<?php echo $keyword ?>">
 
-<button class="btn btn-primary" name="search">
-Search
-</button>
+                    <button class="btn btn-primary" name="search">
+                        Search
+                    </button>
 
-</form>
+                </form>
 
-<a href="manage_numbers.php?action=add" class="btn btn-success">
-Add Phone Number
-</a>
+                <a href="manage_numbers.php?action=add" class="btn btn-success">
+                    Add Phone Number
+                </a>
 
-</div>
+            </div>
 
 
-<table class="table table-bordered table-striped mt-4">
+            <table class="table table-bordered table-striped mt-4">
 
-<thead class="table-dark">
+                <thead class="table-dark">
 
-<tr>
+                    <tr>
 
-<th>ID</th>
-<th>Phone Number</th>
-<th>Type</th>
-<th>Country</th>
-<th>Description</th>
-<th>Reports</th>
-<th>Created</th>
-<th>Action</th>
+                        <th>ID</th>
+                        <th>Phone Number</th>
+                        <th>Type</th>
+                        <th>Country</th>
+                        <th>Description</th>
+                        <th>Reports</th>
+                        <th>Created</th>
+                        <th>Action</th>
 
-</tr>
+                    </tr>
 
-</thead>
+                </thead>
 
-<tbody>
+                <tbody>
 
-<?php while($row=mysqli_fetch_assoc($result)){ ?>
+                    <?php while($row=mysqli_fetch_assoc($result)){ ?>
 
-<tr>
+                    <tr>
 
-<td><?php echo $row['id'] ?></td>
+                        <td><?php echo $row['id'] ?></td>
 
-<td><?php echo $row['phonenumber'] ?></td>
+                        <td><?php echo $row['phonenumber'] ?></td>
 
-<td>
+                        <td>
 
-<?php
+                            <?php
 
 if($row['type']=="Scam"){
 echo "<span class='text-danger fw-bold'>Scam</span>";
@@ -471,48 +461,48 @@ echo "<span class='text-secondary'>Unknown</span>";
 
 ?>
 
-</td>
+                        </td>
 
-<td><?php echo $row['country'] ?></td>
+                        <td><?php echo $row['country'] ?></td>
 
-<td><?php echo $row['description'] ?></td>
+                        <td><?php echo $row['description'] ?></td>
 
-<td><?php echo $row['report_count'] ?></td>
+                        <td><?php echo $row['report_count'] ?></td>
 
-<td><?php echo $row['created_at'] ?></td>
+                        <td><?php echo $row['created_at'] ?></td>
 
-<td>
+                        <td>
 
-<a href="manage_numbers.php?action=edit&id=<?php echo $row['id'] ?>"
-class="btn btn-warning btn-sm">
-Edit
-</a>
+                            <a href="manage_numbers.php?action=edit&id=<?php echo $row['id'] ?>"
+                                class="btn btn-warning btn-sm">
+                                Edit
+                            </a>
 
-<a href="manage_numbers.php?action=delete&id=<?php echo $row['id'] ?>"
-class="btn btn-danger btn-sm"
-onclick="return confirm('Delete this number?')">
-Delete
-</a>
+                            <a href="manage_numbers.php?action=delete&id=<?php echo $row['id'] ?>"
+                                class="btn btn-danger btn-sm" onclick="return confirm('Delete this number?')">
+                                Delete
+                            </a>
 
-</td>
+                        </td>
 
-</tr>
+                    </tr>
 
-<?php } ?>
+                    <?php } ?>
 
-</tbody>
+                </tbody>
 
-</table>
+            </table>
 
-<a href="admin_dashboard.php" class="btn btn-secondary">
+            <a href="admin_dashboard.php" class="btn btn-secondary">
                 Back
             </a>
 
-<?php } ?>
+            <?php } ?>
 
-</div>
+        </div>
 
 </body>
+
 </html>
 
 <script>

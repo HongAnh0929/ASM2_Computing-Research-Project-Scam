@@ -113,36 +113,39 @@ $gender="";
 
     <style>
     body {
-    background-image: url("img/background.png");
-    background-size: cover;
-    background-position: center;
-    min-height: 100vh;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    padding:40px 0;
-}
+        background-image: url("img/background.png");
+        background-size: cover;
+        background-position: center;
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 40px 0;
+    }
 
-    .overlay{
-position: fixed;
-top:0;
-left:0;
-width:100%;
-height:100%;
-background:rgba(0,0,0,0.6);
-z-index:-1;
-}
+    .overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: -1;
+    }
 
-    .register-box{
-position:relative;
-width:100%;
-max-width:550px;   /* nhỏ ngang hơn */
-background:white;
-padding:25px 20px; /* giảm chiều cao */
-border-radius:12px;
-box-shadow:0 10px 25px rgba(0,0,0,0.4);
-z-index:1;
-}
+    .register-box {
+        position: relative;
+        width: 100%;
+        max-width: 550px;
+        /* nhỏ ngang hơn */
+        background: rgba(0, 0, 0, 0.6);
+        padding: 25px 20px;
+        /* giảm chiều cao */
+        border-radius: 12px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+        z-index: 1;
+        color: white;
+    }
 
     .register-box h3 {
         font-weight: 700;
@@ -214,35 +217,32 @@ z-index:1;
 
             <div class="mb-3">
 
-<label class="form-label">Date of Birth</label>
+                <label class="form-label">Date of Birth</label>
 
-<input type="date"
-class="form-control"
-name="dob"
-max="<?php echo date('Y-m-d'); ?>"
-value="<?php echo htmlspecialchars($dob); ?>">
+                <input type="date" class="form-control" name="dob" max="<?php echo date('Y-m-d'); ?>"
+                    value="<?php echo htmlspecialchars($dob); ?>">
 
-<div class="error"><?php echo $dob_error ?></div>
+                <div class="error"><?php echo $dob_error ?></div>
 
-</div>
+            </div>
 
-<div class="mb-3">
+            <div class="mb-3">
 
-<label class="form-label">Gender</label>
+                <label class="form-label">Gender</label>
 
-<select class="form-control" name="gender">
+                <select class="form-control" name="gender">
 
-<option value="">Select Gender</option>
+                    <option value="">Select Gender</option>
 
-<option value="Male" <?php if($gender=="Male") echo "selected"; ?>>Male</option>
+                    <option value="Male" <?php if($gender=="Male") echo "selected"; ?>>Male</option>
 
-<option value="Female" <?php if($gender=="Female") echo "selected"; ?>>Female</option>
+                    <option value="Female" <?php if($gender=="Female") echo "selected"; ?>>Female</option>
 
-</select>
+                </select>
 
-<div class="error"><?php echo $gender_error ?></div>
+                <div class="error"><?php echo $gender_error ?></div>
 
-</div>
+            </div>
 
             <div class="mb-3">
 
@@ -251,7 +251,8 @@ value="<?php echo htmlspecialchars($dob); ?>">
                 <div class="input-group">
 
                     <input type="password" class="form-control" id="password" name="password"
-                        placeholder="Enter password" value="<?php echo htmlspecialchars($password); ?>" onkeyup="checkStrength()">
+                        placeholder="Enter password" value="<?php echo htmlspecialchars($password); ?>"
+                        onkeyup="checkStrength()">
 
                     <span class="input-group-text" onclick="togglePassword('password',this)">
 
@@ -270,25 +271,22 @@ value="<?php echo htmlspecialchars($dob); ?>">
 
             <div class="mb-3">
 
-<label class="form-label">Confirm Password</label>
+                <label class="form-label">Confirm Password</label>
 
-<div class="input-group">
+                <div class="input-group">
 
-<input type="password" class="form-control"
-id="confirm"
-name="confirm_password"
-placeholder="Confirm password"
-onkeyup="checkStrength()">
+                    <input type="password" class="form-control" id="confirm" name="confirm_password"
+                        placeholder="Confirm password" onkeyup="checkStrength()">
 
-<span class="input-group-text" onclick="togglePassword('confirm',this)">
-<i class="bi bi-eye"></i>
-</span>
+                    <span class="input-group-text" onclick="togglePassword('confirm',this)">
+                        <i class="bi bi-eye"></i>
+                    </span>
 
-</div>
+                </div>
 
-<div class="error"><?php echo $confirm_error ?></div>
+                <div class="error"><?php echo $confirm_error ?></div>
 
-</div>
+            </div>
 
             <div class="d-flex justify-content-between mt-4">
 

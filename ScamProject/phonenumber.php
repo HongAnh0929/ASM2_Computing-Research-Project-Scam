@@ -34,96 +34,94 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     <title>Check Phone Number</title>
 
-<style>
+    <style>
+    body {
+        background-image: url("img/background.png");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+    }
 
-body{
-    background-image:url("img/background.png");
-    background-size:cover;
-    background-position:center;
-    background-attachment:fixed;
-}
+    .overlay {
+        background: rgba(0, 0, 0, 0.55);
+        padding: 40px 0;
+        color: white;
+        flex: 1;
+        width: 100%;
+    }
 
-.overlay{
-    background: rgba(0,0,0,0.55);
-    padding:40px 0;
-    color:white;
-    flex:1;
-    width:100%;
-}
+    .navbar {
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(6px);
+    }
 
-.navbar{
-    background:rgba(0,0,0,0.5);
-    backdrop-filter:blur(6px);
-}
+    .footer-custom {
+        background: rgba(0, 0, 0, 0.75);
+        color: white;
+    }
 
-.footer-custom{
-    background:rgba(0,0,0,0.75);
-    color:white;
-}
+    .footer-link {
+        color: #ddd;
+        text-decoration: none;
+    }
 
-.footer-link{
-    color:#ddd;
-    text-decoration:none;
-}
-
-.footer-link:hover{
-    color:white;
-    text-decoration:underline;
-}
-</style>
+    .footer-link:hover {
+        color: white;
+        text-decoration: underline;
+    }
+    </style>
 
 </head>
 
 <body class="d-flex flex-column min-vh-100">
 
 
-<!-- NAVBAR -->
+    <!-- NAVBAR -->
 
-<nav class="navbar navbar-expand-lg navbar-dark w-100 fixed-top shadow-sm">
+    <nav class="navbar navbar-expand-lg navbar-dark w-100 fixed-top shadow-sm">
 
-    <div class="container-fluid">
+        <div class="container-fluid">
 
-        <a class="navbar-brand fw-bold fs-3 me-5" href="index.php">
-            Scam Detection
-        </a>
+            <a class="navbar-brand fw-bold fs-3 me-5" href="index.php">
+                Scam Detection
+            </a>
 
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-            <span class="navbar-toggler-icon"></span>
-        </button>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
 
-        <div class="collapse navbar-collapse" id="navbarNav">
+            <div class="collapse navbar-collapse" id="navbarNav">
 
-            <ul class="navbar-nav me-auto mb-2 mb-lg-0 mx-4 gap-5 fs-6">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0 mx-4 gap-5 fs-6">
 
-                <li class="nav-item">
-                    <a class="nav-link active" href="index.php">HOME</a>
-                </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="index.php">HOME</a>
+                    </li>
 
-                <li class="nav-item">
-                    <a class="nav-link active" href="phonenumber.php">PHONE NUMBER</a>
-                </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="phonenumber.php">PHONE NUMBER</a>
+                    </li>
 
-                <li class="nav-item">
-                    <a class="nav-link active" href="#">URL</a>
-                </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#">URL</a>
+                    </li>
 
-                <li class="nav-item">
-                    <a class="nav-link active" href="#">EMAIL</a>
-                </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#">EMAIL</a>
+                    </li>
 
-            </ul>
+                </ul>
 
-            <div class="d-flex align-items-center gap-3">
+                <div class="d-flex align-items-center gap-3">
 
-                <?php if (isset($_SESSION['user_id'])): ?>
+                    <?php if (isset($_SESSION['user_id'])): ?>
 
                     <div class="dropdown">
 
-                        <a class="d-flex align-items-center text-white text-decoration-none dropdown-toggle"
-                           href="#"
-                           data-bs-toggle="dropdown">
+                        <a class="d-flex align-items-center text-white text-decoration-none dropdown-toggle" href="#"
+                            data-bs-toggle="dropdown">
 
-                           <i class="bi bi-person-circle fs-3"></i>
+                            <i class="bi bi-person-circle fs-3"></i>
 
                         </a>
 
@@ -142,7 +140,9 @@ body{
                                 </a>
                             </li>
 
-                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <hr class="dropdown-divider">
+                            </li>
 
                             <li>
                                 <a class="dropdown-item text-danger" href="logout.php">
@@ -155,91 +155,86 @@ body{
 
                     </div>
 
-                <?php else: ?>
+                    <?php else: ?>
 
                     <a href="login.php" class="btn btn-outline-info">Sign in</a>
                     <a href="register.php" class="btn btn-outline-info">Sign up</a>
 
-                <?php endif; ?>
-
-            </div>
-
-        </div>
-
-    </div>
-
-</nav>
-
-<!-- MAIN CONTENT -->
-
-<div class="overlay">
-    <div class="container mt-5 pt-5 flex-grow-1">
-        <h2 class="text-center mb-4 mt-5">
-            CHECK PHONE NUMBER
-        </h2>
-
-        <form method="POST" onsubmit="return validateForm()">
-
-            <div class="row justify-content-center">
-
-                <div class="col-md-6">
-
-                    <input type="text"
-                           id="phoneInput"
-                           name="phone"
-                           class="form-control mb-2"
-                           placeholder="Enter phone number..."
-                           oninput="validatePhone()"
-                           required>
-
-                    <small id="errorText" class="text-danger d-none">
-                        Phone number must start with 0 and contain exactly 10 digits.
-                    </small>
-
-                    <button type="submit" class="btn btn-primary w-100 mt-3">
-                        Check
-                    </button>
+                    <?php endif; ?>
 
                 </div>
 
             </div>
 
-        </form>
+        </div>
 
-    </div>
+    </nav>
 
-</div>
+    <!-- MAIN CONTENT -->
 
-<!-- FOOTER -->
+    <div class="overlay">
+        <div class="container mt-5 pt-5 flex-grow-1">
+            <h2 class="text-center mb-4 mt-5">
+                CHECK PHONE NUMBER
+            </h2>
 
-<footer class="py-3 border-top footer-custom mt-auto">
+            <form method="POST" onsubmit="return validateForm()">
 
-    <div class="container">
+                <div class="row justify-content-center">
 
-        <div class="d-flex justify-content-between align-items-center small">
+                    <div class="col-md-6">
 
-            <div>
-                © 2026 Scam Detection Platform – BTEC FPT
-            </div>
+                        <input type="text" id="phoneInput" name="phone" class="form-control mb-2"
+                            placeholder="Enter phone number..." oninput="validatePhone()" required>
 
-            <div>
-                <a href="#" class="footer-link">Privacy Policy</a>
-                &middot;
-                <a href="#" class="footer-link">Terms & Conditions</a>
-            </div>
+                        <small id="errorText" class="text-danger d-none">
+                            Phone number must start with 0 and contain exactly 10 digits.
+                        </small>
+
+                        <button type="submit" class="btn btn-primary w-100 mt-3">
+                            Check
+                        </button>
+
+                    </div>
+
+                </div>
+
+            </form>
 
         </div>
 
     </div>
 
-</footer>
+    <!-- FOOTER -->
+
+    <footer class="py-3 border-top footer-custom mt-auto">
+
+        <div class="container">
+
+            <div class="d-flex justify-content-between align-items-center small">
+
+                <div>
+                    © 2026 Scam Detection Platform – BTEC FPT
+                </div>
+
+                <div>
+                    <a href="#" class="footer-link">Privacy Policy</a>
+                    &middot;
+                    <a href="#" class="footer-link">Terms & Conditions</a>
+                </div>
+
+            </div>
+
+        </div>
+
+    </footer>
 
 </body>
+
 </html>
 
 <script>
-
-function validatePhone(){
+function validatePhone() {
 
     const phoneInput = document.getElementById("phoneInput");
     const errorText = document.getElementById("errorText");
@@ -248,7 +243,7 @@ function validatePhone(){
 
     const phoneRegex = /^0[0-9]{9}$/;
 
-    if(!phoneRegex.test(phone)){
+    if (!phoneRegex.test(phone)) {
 
         errorText.classList.remove("d-none");
         phoneInput.classList.add("is-invalid");
@@ -256,7 +251,7 @@ function validatePhone(){
 
         return false;
 
-    }else{
+    } else {
 
         errorText.classList.add("d-none");
         phoneInput.classList.remove("is-invalid");
@@ -267,8 +262,7 @@ function validatePhone(){
 
 }
 
-function validateForm(){
+function validateForm() {
     return validatePhone();
 }
-
 </script>

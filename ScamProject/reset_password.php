@@ -2,31 +2,35 @@
 session_start();
 require '../Database/database.php';
 
+$message = "";
+
 if(isset($_POST['reset'])){
 
-$password = $_POST['password'];
-$confirm = $_POST['confirm'];
+    if(!isset($_SESSION['reset_user'])){
+        die("Unauthorized access");
+    }
 
-if($password != $confirm){
+    $password = $_POST['password'];
+    $confirm  = $_POST['confirm'];
 
-echo "Password not match";
-exit;
+    if($password != $confirm){
+        $message = "Password does not match!";
+    } else {
 
-}
+        $hash = password_hash($password, PASSWORD_BCRYPT);
+        $username = $_SESSION['reset_user'];
 
-$hash = password_hash($password,PASSWORD_BCRYPT);
+        $sql = "UPDATE users SET password=? WHERE username=?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("ss", $hash, $username);
 
-$username = $_SESSION['reset_user'];
-
-$sql = "UPDATE users SET password=? WHERE username=?";
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("ss",$hash,$username);
-$stmt->execute();
-
-echo "Password updated successfully";
-
-session_destroy();
-
+        if($stmt->execute()){
+            $message = "Password updated successfully!";
+            session_destroy();
+        } else {
+            $message = "Something went wrong!";
+        }
+    }
 }
 ?>
 
@@ -36,30 +40,80 @@ session_destroy();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css">
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
-    <title>Document</title>
+
+    <title>Reset Password</title>
+
+    <style>
+    body {
+        background-image: url("img/background.png");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+        margin: 0;
+    }
+
+    .overlay {
+        background: rgba(0, 0, 0, 0.55);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+    }
+
+    .form-box {
+        max-width: 450px;
+        width: 100%;
+        background: rgba(0, 0, 0, 0.6);
+        padding: 30px;
+        border-radius: 10px;
+    }
+    </style>
 </head>
 
 <body>
-    <div class="container mt-5">
-        <h1>Reset Password</h1>
-        <div class="container">
+
+    <div class="overlay">
+
+        <div class="form-box">
+
+            <h2 class="text-center mb-4">Reset Password</h2>
+
+            <?php if($message): ?>
+            <div class="alert alert-info">
+                <?php echo htmlspecialchars($message); ?>
+            </div>
+            <?php endif; ?>
+
             <form method="POST">
+
                 <div class="mb-3">
-                    <label for="password" class="form-label">New Password</label>
-                    <input type="password" class="form-control" id="password" name="password" required>
+                    <label class="form-label">New Password</label>
+                    <input type="password" class="form-control" name="password" required>
                 </div>
+
                 <div class="mb-3">
-                    <label for="password" class="form-label">Confirm Password</label>
-                    <input type="password" class="form-control" id="password" name="password" required>
+                    <label class="form-label">Confirm Password</label>
+                    <input type="password" class="form-control" name="confirm" required>
                 </div>
-                <button name="reset" class="btn btn-primary">Reset Password</button>
-                <a href="login.php" class="btn btn-secondary">Back</a>
+
+                <div class="d-flex gap-2">
+                    <button name="reset" class="btn btn-primary w-50">
+                        <i class="bi bi-key"></i> Reset password
+                    </button>
+
+                    <a href="login.php" class="btn btn-secondary w-50">
+                        Back
+                    </a>
+                </div>
+
             </form>
-            <br>
+
         </div>
+
     </div>
 
 </body>

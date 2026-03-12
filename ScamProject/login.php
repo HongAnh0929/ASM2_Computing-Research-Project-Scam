@@ -224,11 +224,12 @@ if(($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["username"]) && isset($
         display: flex;
         justify-content: center;
         align-items: center;
+        color: white;
     }
 
     .login-box {
         width: 500px;
-        background: white;
+        background: rgba(0, 0, 0, 0.6);
         padding: 35px;
         border-radius: 12px;
         box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
