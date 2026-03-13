@@ -38,6 +38,19 @@ DATABASE CHECK
 ========================= */
 
 $db_reports = 0;
+$report_types = [];
+$description="";
+
+$stmt = $conn->prepare("SELECT report_reason FROM reports WHERE phone=?");
+$stmt->bind_param("s",$phone);
+$stmt->execute();
+$result = $stmt->get_result();
+
+while($row = $result->fetch_assoc()){
+    $report_types[] = $row['report_reason'];
+}
+
+$report_types = array_unique($report_types);
 
 $stmt = $conn->prepare("SELECT report_count FROM phonenumbers WHERE phonenumber=?");
 $stmt->bind_param("s",$phone);
@@ -46,6 +59,32 @@ $result = $stmt->get_result();
 
 if($row = $result->fetch_assoc()){
     $db_reports = $row['report_count'];
+}
+
+/* =========================
+GET LAST REPORT DESCRIPTION
+========================= */
+
+$stmt = $conn->prepare("
+SELECT report_reason, comment
+FROM reports
+WHERE phone=?
+ORDER BY id DESC
+LIMIT 1
+");
+
+$stmt->bind_param("s",$phone);
+$stmt->execute();
+$result = $stmt->get_result();
+
+if($row = $result->fetch_assoc()){
+
+$description = $row['report_reason'];
+
+if(!empty($row['comment'])){
+$description .= " - ".$row['comment'];
+}
+
 }
 
 /* =========================
@@ -115,7 +154,7 @@ $risk_score = min(100, ($google_results*2)+($db_reports*30));
 $risk_level="Low";
 $status_text="SAFE";
 $status_class="scam-banner-green";
-$status_desc="Hiện chưa phát hiện báo cáo lừa đảo liên quan đến số này.";
+$status_desc="No scam reports related to this phone number have been detected.";
 $icon=' <svg xmlns="http://www.w3.org/2000/svg" height="40" viewBox="0 -960 960 960" width="40" fill="#41d24b"> <path d="m421-298 283-283-46-45-237 237-120-120-45 45 165 166Z"/> </svg> ';
 
 /* =========================
@@ -126,22 +165,22 @@ if($google_results == 0 && $db_reports == 0){
 
 $risk_level="Unknown";
 $status_text="NO DATA";
-$status_class="scam-banner-green";
-$status_desc="Số điện thoại này chưa có trong cơ sở dữ liệu và chưa tìm thấy báo cáo trên internet.";
-$icon=' <svg xmlns="http://www.w3.org/2000/svg" height="40" viewBox="0 -960 960 960" width="40" fill="#6c757d"><path d="M440-440h80v-240h-80v240Zm40 320q-83 0-156-31.5T197-242q-54-54-85.5-127T80-520q0-83 31.5-156T197-803q54-54 127-85.5T480-920q83 0 156 31.5T763-803q54 54 85.5 127T880-520q0 83-31.5 156T763-242q-54 54-127 85.5T480-120Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Z"/></svg>';
+$status_class="scam-banner-gray";
+$status_desc="This phone number is not found in our database and no reports were found online.";
+$icon='<svg xmlns="http://www.w3.org/2000/svg" height="40px" viewBox="0 -960 960 960" width="40px" fill="#FFFF55"><path d="M505.17-290.15q10.16-10.16 10.16-25.17 0-15.01-10.15-25.18-10.16-10.17-25.17-10.17-15.01 0-25.18 10.16-10.16 10.15-10.16 25.17 0 15.01 10.15 25.17Q464.98-280 479.99-280q15.01 0 25.18-10.15Zm-56.5-145.18h66.66V-684h-66.66v248.67ZM480.18-80q-82.83 0-155.67-31.5-72.84-31.5-127.18-85.83Q143-251.67 111.5-324.56T80-480.33q0-82.88 31.5-155.78Q143-709 197.33-763q54.34-54 127.23-85.5T480.33-880q82.88 0 155.78 31.5Q709-817 763-763t85.5 127Q880-563 880-480.18q0 82.83-31.5 155.67Q817-251.67 763-197.46q-54 54.21-127 85.84Q563-80 480.18-80Zm.15-66.67q139 0 236-97.33t97-236.33q0-139-96.87-236-96.88-97-236.46-97-138.67 0-236 96.87-97.33 96.88-97.33 236.46 0 138.67 97.33 236 97.33 97.33 236.33 97.33ZM480-480Z"/></svg>';
 }
 elseif($risk_score>=70){
 $risk_level="High";
 $status_text="SCAM";
 $status_class="scam-banner-red";
-$status_desc="Đây là số điện thoại: <strong>SCAM</strong><br>(LỪA ĐẢO TÀI CHÍNH)";
+$status_desc="This phone number has been identified as a potential scam.";
 $icon=' <svg xmlns="http://www.w3.org/2000/svg" height="40" viewBox="0 -960 960 960" width="40" fill="#EA3323"> <path d="M450-284h60v-257h-60v257Z"/> </svg> ';
 }
 elseif($risk_score>=30){
 $risk_level="Medium";
 $status_text="SUSPICIOUS";
 $status_class="scam-banner-orange";
-$status_desc="Số điện thoại này có dấu hiệu đáng ngờ. Hãy cẩn thận khi giao dịch.";
+$status_desc="This phone number shows suspicious activity. Please be cautious when interacting.";
 $icon=' <svg xmlns="http://www.w3.org/2000/svg" height="40" viewBox="0 -960 960 960" width="40" fill="#facc15"> <path d="M480-280q17 0 28.5-11.5T520-320q0-17-11.5-28.5T480-360q-17 0-28.5 11.5T440-320q0 17 11.5 28.5T480-280Zm-40-120h80v-280h-80v280Z"/> </svg> ';
 }
 
@@ -161,7 +200,7 @@ $reason=$_POST['reason'];
 $comment=$_POST['comment'] ?? '';
 
 $stmt=$conn->prepare("
-INSERT INTO phone_reports (phone,report_reason,comment)
+INSERT INTO reports (phone,report_reason,comment)
 VALUES (?,?,?)
 ");
 
@@ -179,34 +218,6 @@ $stmt->execute();
 
 header("Location: result.php?phone=".$phone."&reported=1");
 exit;
-
-/* =========================
-GET REPORT DESCRIPTION
-========================= */
-
-$description = "";
-
-$stmt = $conn->prepare("
-SELECT report_reason, comment
-FROM phonenumbers
-WHERE phone=?
-ORDER BY id DESC
-LIMIT 1
-");
-
-$stmt->bind_param("s",$phone);
-$stmt->execute();
-$result = $stmt->get_result();
-
-if($row = $result->fetch_assoc()){
-
-$description = $row['report_reason'];
-
-if(!empty($row['comment'])){
-$description .= " - ".$row['comment'];
-}
-
-}
 }
 ?>
 
@@ -349,6 +360,10 @@ $description .= " - ".$row['comment'];
 
     .scam-banner-green {
         background: linear-gradient(#28a745, #1e7e34);
+    }
+
+    .scam-banner-gray {
+        background: linear-gradient(#6c757d, #495057);
     }
 
     /* mô tả */
@@ -565,6 +580,23 @@ $description .= " - ".$row['comment'];
 
                     <div class="info">User Reports: <strong><?php echo $db_reports ?></strong></div>
 
+                    <?php if(!empty($report_types)): ?>
+
+                    <div style="margin-top:15px;">
+                        <strong>Reported Scam Types:</strong>
+
+                        <div style="margin-top:5px;">
+
+                            <?php foreach($report_types as $type): ?>
+                            <span class="badge bg-danger me-1">
+                                <?php echo htmlspecialchars($type); ?>
+                            </span>
+                            <?php endforeach; ?>
+
+                        </div>
+                    </div>
+
+                    <?php endif; ?>
 
                     <?php if($description!=""): ?>
                     <br>
@@ -606,14 +638,33 @@ $description .= " - ".$row['comment'];
 
                         <select name="reason" class="form-select mb-2">
 
-                            <option value="Scam Call">Scam Call</option>
-                            <option value="Bank Scam">Pretending to be a bank</option>
-                            <option value="Loan Scam">Fake loan service</option>
-                            <option value="Investment Scam">Fake investment</option>
-                            <option value="Prize Scam">Fake lottery prize</option>
-                            <option value="Impersonation">Police/Government impersonation</option>
-                            <option value="Spam Telemarketing">Telemarketing spam</option>
-                            <option value="Harassment">Harassment call</option>
+                            <optgroup label="Financial Scams">
+                                <option value="Bank Scam">Pretending to be a bank</option>
+                                <option value="Loan Scam">Fake loan service</option>
+                                <option value="Investment Scam">Fake investment</option>
+                                <option value="Crypto Scam">Cryptocurrency scam</option>
+                                <option value="Insurance Scam">Fake insurance offer</option>
+                            </optgroup>
+
+                            <optgroup label="Impersonation Scams">
+                                <option value="Government Impersonation">Police/Government impersonation</option>
+                                <option value="Tech Support Scam">Fake technical support</option>
+                                <option value="Delivery Scam">Fake delivery problem</option>
+                            </optgroup>
+
+                            <optgroup label="Online Scams">
+                                <option value="E-commerce Scam">Online shopping fraud</option>
+                                <option value="Job Scam">Fake job recruitment</option>
+                                <option value="Prize Scam">Fake lottery prize</option>
+                            </optgroup>
+
+                            <optgroup label="Spam / Other">
+                                <option value="Spam Telemarketing">Telemarketing spam</option>
+                                <option value="Robocall">Automated robocall</option>
+                                <option value="Harassment">Harassment call</option>
+                                <option value="Unknown Suspicious Call">Unknown suspicious call</option>
+                            </optgroup>
+
 
                         </select>
 
