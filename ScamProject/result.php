@@ -118,8 +118,19 @@ $status_class="scam-banner-green";
 $status_desc="Hiện chưa phát hiện báo cáo lừa đảo liên quan đến số này.";
 $icon=' <svg xmlns="http://www.w3.org/2000/svg" height="40" viewBox="0 -960 960 960" width="40" fill="#41d24b"> <path d="m421-298 283-283-46-45-237 237-120-120-45 45 165 166Z"/> </svg> ';
 
+/* =========================
+NO DATA CHECK
+========================= */
 
-if($risk_score>=70){
+if($google_results == 0 && $db_reports == 0){
+
+$risk_level="Unknown";
+$status_text="NO DATA";
+$status_class="scam-banner-green";
+$status_desc="Số điện thoại này chưa có trong cơ sở dữ liệu và chưa tìm thấy báo cáo trên internet.";
+$icon=' <svg xmlns="http://www.w3.org/2000/svg" height="40" viewBox="0 -960 960 960" width="40" fill="#6c757d"><path d="M440-440h80v-240h-80v240Zm40 320q-83 0-156-31.5T197-242q-54-54-85.5-127T80-520q0-83 31.5-156T197-803q54-54 127-85.5T480-920q83 0 156 31.5T763-803q54 54 85.5 127T880-520q0 83-31.5 156T763-242q-54 54-127 85.5T480-120Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Z"/></svg>';
+}
+elseif($risk_score>=70){
 $risk_level="High";
 $status_text="SCAM";
 $status_class="scam-banner-red";
