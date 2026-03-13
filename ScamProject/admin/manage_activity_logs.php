@@ -70,6 +70,32 @@ $browser
 $stmt->execute();
 
 }
+
+/* =========================
+GET BROWSER NAME
+========================= */
+
+function getBrowser($user_agent){
+
+if(strpos($user_agent,'Chrome') !== false){
+return "Chrome";
+}
+
+if(strpos($user_agent,'Firefox') !== false){
+return "Firefox";
+}
+
+if(strpos($user_agent,'Edge') !== false){
+return "Edge";
+}
+
+if(strpos($user_agent,'Safari') !== false){
+return "Safari";
+}
+
+return "Unknown";
+
+}
 ?>
 
 <!DOCTYPE html>
@@ -337,9 +363,9 @@ echo '<span class="badge bg-success">Employee</span>';
 
                         <td><?php echo $row['ip_address']; ?></td>
 
-                        <td style="max-width:200px;">
-                            <?php echo substr($row['user_agent'],0,40); ?>
-                        </td>
+                        <td style="max-width:250px; word-break:break-all;">
+<?php echo getBrowser($row['user_agent']); ?>
+</td>
 
                         <td><?php echo $row['created_at']; ?></td>
 

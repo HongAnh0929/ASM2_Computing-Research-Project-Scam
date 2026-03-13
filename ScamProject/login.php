@@ -2,11 +2,27 @@
 session_start();
 require_once '../Database/database.php';
 
+/* =========================
+CHECK IF USER ALREADY LOGIN
+========================= */
+
+if(isset($_SESSION['user_id'])){
+
+    if($_SESSION['role']=="Admin"){
+        header("Location: ../admin/admin_dashboard.php");
+        exit;
+    }else{
+        header("Location: index.php");
+        exit;
+    }
+
+}
+
 $error = "";
 
 //php nằm ở phía Backend
 //Nếu dữ liệu tồn tại
-if(($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["username"]) && isset($_POST["password"]))) {
+if($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["username"]) && isset($_POST["password"])) {
 
     $username = trim($_POST["username"]);
     $password = $_POST["password"];
@@ -14,10 +30,6 @@ if(($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["username"]) && isset($
     //Lấy IP và Browser
     $ip = $_SERVER['REMOTE_ADDR'];
     $browser = $_SERVER['HTTP_USER_AGENT'];
-    
-    //echo"Đăng ký thành công!";
-    //echo"Username: " . $username. "<br>";
-    //echo"Password: " . $password. "<br>";
 
     try {
 
@@ -25,91 +37,68 @@ if(($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["username"]) && isset($
 
         $stmt = $conn->prepare($sql_query); //Chuẩn bị câu truy vấn, biến đổi string thành câu truy vấn an toàn
 
-        $stmt->bind_param("s", $_POST["username"]); //truyền vào các giá trị tương ứng
+        $stmt->bind_param("s", $username); //truyền vào các giá trị tương ứng
 
         $stmt->execute(); //Thực thi câu truy vấn đã chuẩn bị sẵn
 
         $result = $stmt->get_result(); //Lấy kết quả truy vấn
 
 
-        $user_id = NULL;
-        $role = "Guest";
-
-
         if ($result->num_rows > 0) {
 
             $user = $result->fetch_assoc(); //chuyển đổi kết quả thành mảng kết hợp
 
-            $user_id = $user['id'];
-            $role = $user['role'];
-
             if (password_verify($password, $user['password'])) {
 
+                $user_id = $user['id'];
                 $user_name = $user['username'];
+                $role = $user['role'];
 
-                //echo"Welcome, $user_name, (User ID: $user_password)"; //hiển thị thông tin người dùng
-
-                $_SESSION['user_id'] = $user_id; //Lưu ID người dùng vào session
-                $_SESSION['user_name'] = $user_name; //Lưu tên người dùng vào session
-                $_SESSION['role'] = $user['role'];
-
+                //Lưu session
+                $_SESSION['user_id'] = $user_id;
+                $_SESSION['user_name'] = $user_name;
+                $_SESSION['role'] = $role;
                 //Update trạng thái đăng nhập
                 $stmt = $conn->prepare("UPDATE users SET status='Active', last_login=NOW() WHERE id=?");
-                $stmt->bind_param("i",$user['id']);
-                $stmt->execute(); 
-
-
-                /* CHECK AFTER HOURS LOGIN */
-
-                $alert = NULL;
-
-                if($user['role']=="Employee"){
-
-                    $hour = date("H");
-
-                    if($hour < 8 || $hour > 18){
-
-                        $alert = "after_hours";
-
-                    }
-
-                }
+                $stmt->bind_param("i",$user_id);
+                $stmt->execute();
 
 
                 /* INSERT ACTIVITY LOG (LOGIN SUCCESS) */
 
                 $stmt = $conn->prepare("
                 INSERT INTO activity_logs
-                (user_id,username,role,action,target,ip_address,user_agent,alert_type)
-                VALUES (?,?,?,?,?,?,?,?)
+                (user_id,username,role,action,target,ip_address,user_agent)
+                VALUES (?,?,?,?,?,?,?)
                 ");
 
                 $action = "Login Success";
                 $target = $username;
 
                 $stmt->bind_param(
-                "isssssss",
-                $user['id'],
-                $user['username'],
-                $user['role'],
+                "issssss",
+                $user_id,
+                $user_name,
+                $role,
                 $action,
                 $target,
                 $ip,
-                $browser,
-                $alert
+                $browser
                 );
 
                 $stmt->execute();
 
 
-                if($user['role'] == "Admin"){
+                /* REDIRECT USER */
+
+                if($role == "Admin"){
 
                     header("Location: Admin/admin_dashboard.php");
+                    exit;
 
-                } else{
+                }else{
 
-                    header("Location: index.php"); //Chuyển hướng đến trang chính
-
+                    header("Location: index.php");
                     exit;
 
                 }
@@ -123,66 +112,13 @@ if(($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["username"]) && isset($
             }
 
         }
-
-        //Chuyển hướng đến trang chính hoặc thực hiện các hành động khác
         else {
 
-            $error = "Username or login password is incorrect";
+            $error = "Username or password is incorrect.";
 
         }
-
-
-        /* CHECK FAILED ATTEMPTS */
-
-        $check = $conn->prepare("
-        SELECT COUNT(*) as total
-        FROM activity_logs
-        WHERE action='Login Failed'
-        AND target=?
-        AND created_at >= NOW() - INTERVAL 10 MINUTE
-        ");
-
-        $check->bind_param("s",$username);
-        $check->execute();
-        $data = $check->get_result()->fetch_assoc();
-
-
-        $alert = NULL;
-
-        if($data['total'] >= 5){
-
-            $alert = "login_failed";
-
-        }
-
-
-        /* INSERT FAILED LOGIN LOG */
-
-        $stmt = $conn->prepare("
-        INSERT INTO activity_logs
-        (user_id,username,role,action,target,ip_address,user_agent,alert_type)
-        VALUES (?,?,?,?,?,?,?,?)
-        ");
-
-        $role = $role ?? "Guest";
-        $action = "Login Failed";
-
-        $stmt->bind_param(
-        "isssssss",
-        $user_id,
-        $username,
-        $role,
-        $action,
-        $username,
-        $ip,
-        $browser,
-        $alert
-        );
-
-        $stmt->execute();
 
     }
-
     catch (Exception $e) {
 
         echo "Login error: " . $e->getMessage();
@@ -191,6 +127,9 @@ if(($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["username"]) && isset($
 
 }
 ?>
+
+
+
 
 <!DOCTYPE html>
 <html lang="en">
