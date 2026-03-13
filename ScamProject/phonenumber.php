@@ -83,7 +83,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         <div class="container-fluid">
 
             <a class="navbar-brand fw-bold fs-3 me-5" href="index.php">
-                Scam Detection
+                SCAM BTEC
             </a>
 
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
