@@ -5,6 +5,10 @@ require_once __DIR__ . '/../vendor/autoload.php';
 $dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
 $dotenv->load();
 
+if (empty($_SESSION['csrf'])) {
+    $_SESSION['csrf'] = bin2hex(random_bytes(32));
+}
+
 require_once '../Database/database.php';
 require_once 'functions/translate.php';
 require_once 'functions/security.php';
@@ -77,18 +81,31 @@ $numverify_carrier = "";
 $numverify_line_type = "";
 
 if(!$from_cache){
-    $key=getenv("NUMVERIFY_API_KEY");
+$key = $_ENV['NUMVERIFY_API_KEY'] ?? '';
     if($key){
         $url="http://apilayer.net/api/validate?access_key={$key}&number={$phone}&country_code=VN&format=1";
 
-        $response=@file_get_contents($url);
-        if($response){
-            $json=json_decode($response,true);
+        $ch = curl_init($url);
 
-            $numverify_valid=$json['valid'] ?? false;
-            $numverify_carrier=$json['carrier'] ?? "";
-            $numverify_line_type=$json['line_type'] ?? "";
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 5
+        ]);
+
+        $response = curl_exec($ch);
+
+        if($response === false){
+            // debug nếu cần
+            // echo "CURL ERROR: " . curl_error($ch);
+        } else {
+            $json = json_decode($response, true);
+
+            $numverify_valid = $json['valid'] ?? false;
+            $numverify_carrier = $json['carrier'] ?? "";
+            $numverify_line_type = $json['line_type'] ?? "";
         }
+
+        curl_close($ch);
     }
 }
 
@@ -97,6 +114,7 @@ CARRIER DETECTION
 ========================= */
 $prefix3 = substr($phone,0,3);
 $prefix4 = substr($phone,0,4);
+$prefix5 = substr($phone,0,5);
 
 $carriers=[
 
@@ -148,7 +166,7 @@ if($prefix4=="1900"){
 $number_type="Premium Service";
 }
 
-$country="Vietnam";
+$country="VietNam";
 
 /* =========================
 ADMIN PHONE CHECK
@@ -173,7 +191,7 @@ $stmt = $conn->prepare("
     SELECT report_reason_encrypted 
     FROM reports 
     WHERE phone_hash=? 
-    AND approved=1
+    AND status='Accepted'
 ");
 $stmt->bind_param("s", $phone_hash);
 $stmt->execute();
@@ -208,12 +226,12 @@ elseif($db_reports>=1){
 $risk_score+=15;
 }
 
-if(in_array($prefix3,["089","088","086","058","056"])){
-$risk_score+=10;
+if(in_array($prefix3,["089","088","086","058","056","024","028","059","092","039","033","070"])){
+$risk_score+=15;
 }
 
-if(in_array($prefix3,["024","028"])){
-$risk_score+=5;
+if(in_array($prefix5,["02483","02883","02889"])){
+$risk_score+=15;
 }
 
 if($prefix4=="1900"){
@@ -234,11 +252,6 @@ $risk_score=min($risk_score,100);
 /* =========================
 STATUS ENGINE
 ========================= */
-$status_text="NO DATA";
-$status_class="scam-banner-gray";
-$status_desc="No scam reports have been found for this number yet.";
-$status_icon='<svg xmlns="http://www.w3.org/2000/svg" height="40px" viewBox="0 -960 960 960" width="40px" fill="#FFFF55"><path d="M505.17-290.15q10.16-10.16 10.16-25.17 0-15.01-10.15-25.18-10.16-10.17-25.17-10.17-15.01 0-25.18 10.16-10.16 10.15-10.16 25.17 0 15.01 10.15 25.17Q464.98-280 479.99-280q15.01 0 25.18-10.15Zm-56.5-145.18h66.66V-684h-66.66v248.67ZM480.18-80q-82.83 0-155.67-31.5-72.84-31.5-127.18-85.83Q143-251.67 111.5-324.56T80-480.33q0-82.88 31.5-155.78Q143-709 197.33-763q54.34-54 127.23-85.5T480.33-880q82.88 0 155.78 31.5Q709-817 763-763t85.5 127Q880-563 880-480.18q0 82.83-31.5 155.67Q817-251.67 763-197.46q-54 54.21-127 85.84Q563-80 480.18-80Zm.15-66.67q139 0 236-97.33t97-236.33q0-139-96.87-236-96.88-97-236.46-97-138.67 0-236 96.87-97.33 96.88-97.33 236.46 0 138.67 97.33 236 97.33 97.33 236.33 97.33ZM480-480Z"/></svg>';
-
 if($admin_flag){
 
     $status_text="SCAM";
@@ -255,7 +268,15 @@ elseif($risk_score>=70){
     $status_icon='<svg xmlns="http://www.w3.org/2000/svg" height="48px" viewBox="0 -960 960 960" width="48px" fill="#FFFFFF"><path d="M480-281q14 0 24.5-10.5T515-316q0-14-10.5-24.5T480-351q-14 0-24.5 10.5T445-316q0 14 10.5 24.5T480-281Zm-30-144h60v-263h-60v263ZM330-120 120-330v-300l210-210h300l210 210v300L630-120H330Zm25-60h250l175-175v-250L605-780H355L180-605v250l175 175Zm125-300Z"/></svg> ';
 
 }
-elseif($db_reports==0){
+elseif($risk_score >= 40 || $db_reports > 0){
+
+    $status_text="SUSPICIOUS";
+    $status_class="scam-banner-orange";
+    $status_desc="This number may be suspicious based on community reports.";
+    $status_icon=' <svg xmlns="http://www.w3.org/2000/svg" height="40" viewBox="0 -960 960 960" width="40" fill="#dffa15"> <path d="M480-280q17 0 28.5-11.5T520-320q0-17-11.5-28.5T480-360q-17 0-28.5 11.5T440-320q0 17 11.5 28.5T480-280Zm-40-120h80v-280h-80v280Z"/> </svg> ';
+
+}
+else{
 
     $status_text="NO DATA";
     $status_class="scam-banner-gray";
@@ -263,13 +284,18 @@ elseif($db_reports==0){
     $status_icon='<svg xmlns="http://www.w3.org/2000/svg" height="40px" viewBox="0 -960 960 960" width="40px" fill="#FFFF55"><path d="M505.17-290.15q10.16-10.16 10.16-25.17 0-15.01-10.15-25.18-10.16-10.17-25.17-10.17-15.01 0-25.18 10.16-10.16 10.15-10.16 25.17 0 15.01 10.15 25.17Q464.98-280 479.99-280q15.01 0 25.18-10.15Zm-56.5-145.18h66.66V-684h-66.66v248.67ZM480.18-80q-82.83 0-155.67-31.5-72.84-31.5-127.18-85.83Q143-251.67 111.5-324.56T80-480.33q0-82.88 31.5-155.78Q143-709 197.33-763q54.34-54 127.23-85.5T480.33-880q82.88 0 155.78 31.5Q709-817 763-763t85.5 127Q880-563 880-480.18q0 82.83-31.5 155.67Q817-251.67 763-197.46q-54 54.21-127 85.84Q563-80 480.18-80Zm.15-66.67q139 0 236-97.33t97-236.33q0-139-96.87-236-96.88-97-236.46-97-138.67 0-236 96.87-97.33 96.88-97.33 236.46 0 138.67 97.33 236 97.33 97.33 236.33 97.33ZM480-480Z"/></svg>';
 
 }
-elseif($db_reports > 0 || $risk_score>=40){
 
-    $status_text="SUSPICIOUS";
-    $status_class="scam-banner-orange";
-    $status_desc="This number may be suspicious based on community reports.";
-    $status_icon=' <svg xmlns="http://www.w3.org/2000/svg" height="40" viewBox="0 -960 960 960" width="40" fill="#facc15"> <path d="M480-280q17 0 28.5-11.5T520-320q0-17-11.5-28.5T480-360q-17 0-28.5 11.5T440-320q0 17 11.5 28.5T480-280Zm-40-120h80v-280h-80v280Z"/> </svg> ';
+/* =========================
+FINAL VERDICT SYNC (OPTIONAL BUT STRONG)
+========================= */
 
+$final_verdict = $status_text;
+
+if(!empty($ai_explanation) && strpos($ai_explanation, 'SCAM') !== false){
+    $final_verdict = "SCAM";
+}
+elseif(!empty($ai_explanation) && strpos($ai_explanation, 'SUSPICIOUS') !== false && $final_verdict !== "SCAM"){
+    $final_verdict = "SUSPICIOUS";
 }
 
 /* =========================
@@ -284,11 +310,15 @@ if(!$from_cache){
     type_encrypted=VALUES(type_encrypted)
     ");
 
+    $enc_phone = encryptData($phone);
+    $enc_carrier = encryptData($carrier);
+    $enc_type = encryptData($number_type);
+
     $stmt->bind_param("ssss",
-        encryptData($phone),
+        $enc_phone,
         $phone_hash,
-        encryptData($carrier),
-        encryptData($number_type)
+        $enc_carrier,
+        $enc_type
     );
     $stmt->execute();
 }
@@ -303,8 +333,8 @@ function generateAI($phone, $carrier, $country, $reports, $risk, $type, $report_
     return "AI KEY NOT FOUND";
 }
 
-$url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=" . $api_key;
-    $types = !empty($report_types) ? implode(", ", $report_types) : "No specific types reported";
+    $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=" . $api_key;
+    $types = htmlspecialchars(implode(", ", $report_types));
     $admin_status = $admin_flag ? "FLAGGED AS DANGEROUS BY ADMIN" : "Neutral";
 
     $language_instruction = ($lang == 'vi') 
@@ -312,21 +342,31 @@ $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-p
     : "Write the report in English.";
     
     $prompt = "You are a cyber-security expert specializing in telecommunications fraud. 
-    Analyze the following phone number: $phone.
-    
-    System Data:
-    - Carrier: $carrier
-    - Line Type: $type
-    - Community Reports: $reports
-    - System Risk Score: $risk%
-    - Admin Status: $admin_status
-    - Reported Violations: $types
+Analyze the following phone number: $phone.
 
-    Task: Write a detailed security report in $language_instruction including:
-    1. Risk Summary: Why is this number flagged? (e.g., VOIP usage, high report count).
-    2. Risk Level: (NO DATA / SUSPICIOUS / SCAM) and the reasoning.
-    3. Safety Advice: 2-3 practical tips for the user.
-    Format the output using basic HTML (<b>, <p>, <ul>).";
+System Data:
+- Carrier: $carrier
+- Line Type: $type
+- Community Reports: $reports
+- System Risk Score: $risk%
+- Admin Status: $admin_status
+- Reported Violations: $types
+
+Task: Write a detailed security report in $language_instruction including:
+1. Risk Summary
+2. Risk Level
+3. Safety Advice
+
+Return ONLY clean HTML using tags like <b>, <p>, <ul>, <li>.
+DO NOT use markdown.
+DO NOT wrap the response in ``` or code blocks.
+
+If you output Risk Level, format EXACTLY like:
+<p><b>Risk Level:</b> <span class='risk-high'>SCAM</span></p>
+OR
+<p><b>Risk Level:</b> <span class='risk-medium'>SUSPICIOUS</span></p>
+OR
+<p><b>Risk Level:</b> <span class='risk-low'>NO DATA</span></p>";
 
     $data = [
         "contents" => [["parts" => [["text" => $prompt]]]]
@@ -344,6 +384,11 @@ if($res === false){
     return "CURL ERROR: " . curl_error($ch);
 }
 
+if($res === false){
+    curl_close($ch);
+    return "AI_REQUEST_FAILED";
+}
+
 $json = json_decode($res, true);
 curl_close($ch);
 
@@ -353,27 +398,29 @@ if(isset($json['error'])){
 }
 
 if(!isset($json['candidates'][0]['content']['parts'][0]['text'])){
-    return "<pre>" . print_r($json, true) . "</pre>";
+    return "AI_RESPONSE_EMPTY";
 }
 
-return $json['candidates'][0]['content']['parts'][0]['text'];
-}
+$ai_explanation = $json['candidates'][0]['content']['parts'][0]['text'];
 
+// Remove markdown nếu AI vẫn trả
+$ai_explanation = preg_replace('/```html|```/', '', $ai_explanation);
+
+return trim($ai_explanation);
+}
 
 /* =========================
-CARD BORDER COLOR
+CARD BORDER COLOR (FIXED)
 ========================= */
 
-$card_border="border-safe";
-
-if($risk_score>=70){
-$card_border="border-scam";
+if($admin_flag || $risk_score >= 70){
+    $card_border = "border-scam";
 }
-elseif($risk_score>=40){
-$card_border="border-warning";
+elseif($risk_score >= 40 || $db_reports > 0){
+    $card_border = "border-warning";
 }
-elseif($db_reports==0){
-$card_border="border-unknown";
+else{
+    $card_border = "border-safe";
 }
 
 /* =========================
@@ -431,12 +478,17 @@ if ($row = $res_ai->fetch_assoc()) {
 /* =========================
 REPORT SYSTEM
 ========================= */
-
 if(isset($_POST['report'])){
+    if(!isset($_POST['csrf']) || $_POST['csrf'] !== $_SESSION['csrf']){
+        die("CSRF validation failed");
+    }
 
     $reason = trim($_POST['reason'] ?? '');
     $comment = trim($_POST['comment'] ?? '');
     $other_reason = trim($_POST['other_reason'] ?? '');
+
+    // phần code còn lại giữ nguyên...
+
 
     // Nếu chọn OTHER thì lấy input user
     if($reason === "Other"){
@@ -451,8 +503,14 @@ if(isset($_POST['report'])){
     }
 
     $stmt = $conn->prepare("
-        INSERT INTO reports(phone_encrypted, phone_hash, report_reason_encrypted, comment_encrypted, approved)
-        VALUES(?,?,?,?,0)
+        INSERT INTO reports(
+            phone_encrypted,
+            phone_hash,
+            report_reason_encrypted,
+            comment_encrypted,
+            status
+        )
+        VALUES(?,?,?,?, 'Pending')
     ");
 
     $enc_phone = encryptData($phone);
@@ -465,6 +523,49 @@ if(isset($_POST['report'])){
     // Redirect về result page
     header("Location: result.php?phone=".$phone);
     exit;
+}
+
+/* =========================
+SAVE SEARCH HISTORY
+========================= */
+if(isset($_SESSION['user_id'])){
+
+    // Map status_text -> ENUM DB
+    $result_type = "Unknown";
+
+    if($status_text == "SCAM"){
+        $result_type = "Scam";
+    } elseif($status_text == "NO DATA"){
+        $result_type = "Unknown";
+    } elseif($status_text == "SUSPICIOUS"){
+        $result_type = "Unknown";
+    }
+
+    $stmt = $conn->prepare("
+        INSERT INTO search_history (
+            user_id,
+            phonenumber_encrypted,
+            phonenumber_hash,
+            result_type
+        )
+        VALUES (?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+            searched_at = NOW()
+    ");
+
+    $enc_phone = encryptData($phone);
+
+    $stmt->bind_param(
+        "isss",
+        $_SESSION['user_id'],
+        $enc_phone,
+        $phone_hash,
+        $result_type
+    );
+
+    if(!$stmt->execute()){
+        die("History error: " . $stmt->error);
+    }
 }
 ?>
 
@@ -575,8 +676,22 @@ if(isset($_POST['report'])){
         box-shadow: 0 0 25px rgba(108, 117, 125, 0.4);
     }
 
-    .result-header {
+    .risk-high {
+        color: #dc3545;
+        font-weight: bold;
+    }
 
+    .risk-medium {
+        color: #fd7e14;
+        font-weight: bold;
+    }
+
+    .risk-low {
+        color: #28a745;
+        font-weight: bold;
+    }
+
+    .result-header {
         background: black;
         color: white;
         font-weight: bold;
@@ -588,29 +703,23 @@ if(isset($_POST['report'])){
         align-items: center;
         justify-content: center;
         gap: 12px;
-
     }
 
     /* chữ header */
 
     .header-text {
-
         letter-spacing: 3px;
         font-size: 25px;
-
     }
 
     .phone-number {
-
         font-size: 50px;
         text-align: center;
         font-weight: bold;
         letter-spacing: 3px;
-
     }
 
     .scam-banner {
-
         color: white;
         font-size: 30px;
         text-align: center;
@@ -619,7 +728,6 @@ if(isset($_POST['report'])){
         margin: 20px auto;
         width: fit-content;
         min-width: 300px;
-
     }
 
     .scam-banner-red {
@@ -749,31 +857,44 @@ if(isset($_POST['report'])){
                             href="phonenumber.php"><?php echo t("PHONE NUMBER");?></a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" aria-current="page" href="#"><?php echo t("URL");?></a>
+                        <a class="nav-link active" aria-current="page" href="scan_url.php"><?php echo t("URL");?></a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" aria-current="page" href="#"><?php echo t("EMAIL");?></a>
+                        <a class="nav-link active" aria-current="page"
+                            href="scan_email.php"><?php echo t("EMAIL");?></a>
                     </li>
                 </ul>
 
-                <!-- Menu phải (User) -->
                 <div class="d-flex align-items-center gap-3">
-                    <?php 
-                        $lang = $_SESSION['lang'] ?? 'en';
-                        $currentQuery = $_GET; // tất cả params hiện tại
+
+                    <!-- Menu phải (User) -->
+                    <div class="d-flex gap-2 ms-3 align-items-center">
+
+                        <?php
+                    $query = $_GET ?? []; // FIX lỗi undefined
+
+                    $query_en = $query;
+                    $query_en['lang'] = 'en';
                     ?>
-                    <a href="?<?php echo http_build_query(array_merge($currentQuery, ['lang'=>'en'])); ?>"
-                        class="lang-btn <?php echo $lang=='en' ? 'active' : ''; ?>">
-                        <img src="https://flagcdn.com/w40/gb.png" class="flag-img" alt="English">
-                        <span class="ms-1">EN</span>
-                    </a>
 
-                    <a href="?<?php echo http_build_query(array_merge($currentQuery, ['lang'=>'vi'])); ?>"
-                        class="lang-btn <?php echo $lang=='vi' ? 'active' : ''; ?>">
-                        <img src="https://flagcdn.com/w40/vn.png" class="flag-img" alt="Vietnamese">
-                        <span class="ms-1">VI</span>
-                    </a>
+                        <a href="?<?php echo http_build_query($query_en); ?>"
+                            class="lang-btn <?php echo $lang=='en' ? 'active' : ''; ?>">
+                            <img src="https://flagcdn.com/w40/gb.png" class="flag-img" alt="English">
+                            <span class="ms-1">EN</span>
+                        </a>
 
+                        <?php
+                    $query_vi = $query;
+                    $query_vi['lang'] = 'vi';
+                    ?>
+
+                        <a href="?<?php echo http_build_query($query_vi); ?>"
+                            class="lang-btn <?php echo $lang=='vi' ? 'active' : ''; ?>">
+                            <img src="https://flagcdn.com/w40/vn.png" class="flag-img" alt="Vietnamese">
+                            <span class="ms-1">VI</span>
+                        </a>
+
+                    </div>
 
                     <?php if (isset($_SESSION['user_id'])): ?>
 
@@ -789,7 +910,7 @@ if(isset($_POST['report'])){
 
                             <li class="dropdown-header">
                                 <a href="profile.php" class="text-decoration-none text-dark">
-                                    <?php echo htmlspecialchars($_SESSION['user_name']); ?>
+                                    <?php echo htmlspecialchars($_SESSION['username'] ?? 'Guest') ?>
                                 </a>
                             </li>
 
@@ -927,10 +1048,27 @@ if(isset($_POST['report'])){
                 <h5><i class="bi bi-robot"></i> <?php echo t("AI Risk Analysis");?>
                     <span class="badge bg-secondary"><?php echo strtoupper($lang); ?></span>
                 </h5>
-                <div><?php echo htmlspecialchars_decode(strip_tags($ai_explanation, "<b><p><ul><li>")); ?></div>
+                <?php
+                $clean_ai = strip_tags($ai_explanation ?? '', "<b><p><ul><li><span>");
+
+                // FORCE đồng bộ màu theo AI text
+                if(strpos($ai_explanation, 'SCAM') !== false){
+                    $clean_ai = preg_replace('/SCAM/', '<span class="risk-high">SCAM</span>', $clean_ai);
+                }
+
+                if(strpos($ai_explanation, 'SUSPICIOUS') !== false){
+                    $clean_ai = preg_replace('/SUSPICIOUS/', '<span class="risk-medium">SUSPICIOUS</span>', $clean_ai);
+                }
+
+                if(strpos($ai_explanation, 'NO DATA') !== false){
+                    $clean_ai = preg_replace('/NO DATA/', '<span class="risk-low">NO DATA</span>', $clean_ai);
+                }
+                ?>
+
+                <div><?php echo $clean_ai; ?></div>
                 <p style="font-size: 0.90rem; color: orange; font-style: bolid; margin-top: 5px;">
-    <?php echo t("NOTE: This report is for reference purposes only and does not constitute legal or professional advice.");?>
-</p>
+                    <?php echo t("NOTE: This report is for reference purposes only and does not constitute legal or professional advice.");?>
+                </p>
             </div>
 
             <div class="community-box mt-3">
@@ -1005,56 +1143,58 @@ echo "<li>".htmlspecialchars($t)."</li>";
             <div id="reportForm" style="display:none;margin-top:20px;">
 
                 <form method="POST">
+                    <input type="hidden" name="csrf" value="<?php echo $_SESSION['csrf']; ?>">
 
                     <select name="reason" id="reasonSelect" class="form-select mb-2">
                         <option value="">Select Reason</option>
                         <optgroup label="<?php echo t('Financial & Payment Scams');?>">
-    <option value="Bank Fraud"><?php echo t('Impersonating a bank / account issues');?></option>
-    <option value="Loan Fraud"><?php echo t('Fake loan offers / upfront fees');?></option>
-    <option value="Investment Scam"><?php echo t('Unrealistic investment returns');?></option>
-    <option value="Crypto Scam"><?php echo t('Cryptocurrency fraud');?></option>
-    <option value="Payment Request Scam"><?php echo t('Suspicious payment request');?></option>
-    <option value="Refund Scam"><?php echo t('Fake refund or reimbursement');?></option>
-</optgroup>
+                            <option value="Bank Fraud"><?php echo t('Impersonating a bank / account issues');?></option>
+                            <option value="Loan Fraud"><?php echo t('Fake loan offers / upfront fees');?></option>
+                            <option value="Investment Scam"><?php echo t('Unrealistic investment returns');?></option>
+                            <option value="Crypto Scam"><?php echo t('Cryptocurrency fraud');?></option>
+                            <option value="Payment Request Scam"><?php echo t('Suspicious payment request');?></option>
+                            <option value="Refund Scam"><?php echo t('Fake refund or reimbursement');?></option>
+                        </optgroup>
 
-<optgroup label="<?php echo t('Impersonation Scams');?>">
-    <option value="Government Scam"><?php echo t('Impersonating police or government');?></option>
-    <option value="Bank Staff Scam"><?php echo t('Impersonating bank staff');?></option>
-    <option value="Tech Support Scam"><?php echo t('Fake technical support');?></option>
-    <option value="Delivery Scam"><?php echo t('Fake delivery issue');?></option>
-    <option value="Friend/Relative Scam"><?php echo t('Impersonating a friend or relative');?></option>
-</optgroup>
+                        <optgroup label="<?php echo t('Impersonation Scams');?>">
+                            <option value="Government Scam"><?php echo t('Impersonating police or government');?>
+                            </option>
+                            <option value="Bank Staff Scam"><?php echo t('Impersonating bank staff');?></option>
+                            <option value="Tech Support Scam"><?php echo t('Fake technical support');?></option>
+                            <option value="Delivery Scam"><?php echo t('Fake delivery issue');?></option>
+                            <option value="Friend/Relative Scam"><?php echo t('Impersonating a friend or relative');?>
+                            </option>
+                        </optgroup>
 
-<optgroup label="<?php echo t('Online & Social Scams');?>">
-    <option value="Ecommerce Scam"><?php echo t('Online shopping fraud');?></option>
-    <option value="Job Scam"><?php echo t('Fake job offer / recruitment scam');?></option>
-    <option value="Dating Scam"><?php echo t('Romance or dating scam');?></option>
-    <option value="Prize Scam"><?php echo t('Fake prize or lottery win');?></option>
-    <option value="Phishing"><?php echo t('Phishing link / data theft');?></option>
-</optgroup>
+                        <optgroup label="<?php echo t('Online & Social Scams');?>">
+                            <option value="Ecommerce Scam"><?php echo t('Online shopping fraud');?></option>
+                            <option value="Job Scam"><?php echo t('Fake job offer / recruitment scam');?></option>
+                            <option value="Dating Scam"><?php echo t('Romance or dating scam');?></option>
+                            <option value="Prize Scam"><?php echo t('Fake prize or lottery win');?></option>
+                            <option value="Phishing"><?php echo t('Phishing link / data theft');?></option>
+                        </optgroup>
 
-<optgroup label="<?php echo t('Spam & Unwanted Calls');?>">
-    <option value="Telemarketing"><?php echo t('Sales or marketing calls');?></option>
-    <option value="Robocall"><?php echo t('Automated or prerecorded call');?></option>
-    <option value="Repeated Spam"><?php echo t('Repeated unwanted calls');?></option>
-    <option value="Silent Call"><?php echo t('Silent or hang-up call');?></option>
-</optgroup>
+                        <optgroup label="<?php echo t('Spam & Unwanted Calls');?>">
+                            <option value="Telemarketing"><?php echo t('Sales or marketing calls');?></option>
+                            <option value="Robocall"><?php echo t('Automated or prerecorded call');?></option>
+                            <option value="Repeated Spam"><?php echo t('Repeated unwanted calls');?></option>
+                            <option value="Silent Call"><?php echo t('Silent or hang-up call');?></option>
+                        </optgroup>
 
-<optgroup label="<?php echo t('Threats & Abuse');?>">
-    <option value="Harassment"><?php echo t('Harassment or nuisance');?></option>
-    <option value="Threatening Call"><?php echo t('Threats or intimidation');?></option>
-    <option value="Extortion Scam"><?php echo t('Blackmail or extortion');?></option>
-</optgroup>
+                        <optgroup label="<?php echo t('Threats & Abuse');?>">
+                            <option value="Harassment"><?php echo t('Harassment or nuisance');?></option>
+                            <option value="Threatening Call"><?php echo t('Threats or intimidation');?></option>
+                            <option value="Extortion Scam"><?php echo t('Blackmail or extortion');?></option>
+                        </optgroup>
 
-<optgroup label="<?php echo t('Other');?>">
-    <option value="Suspicious Call"><?php echo t('Suspicious or unknown call');?></option>
-    <option value="Other"><?php echo t('Other');?></option>
-</optgroup>
+                        <optgroup label="<?php echo t('Other');?>">
+                            <option value="Suspicious Call"><?php echo t('Suspicious or unknown call');?></option>
+                            <option value="Other"><?php echo t('Other');?></option>
+                        </optgroup>
 
                     </select>
-<input type="text" name="other_reason" id="otherReason"
-        class="form-control mt-2 d-none"
-        placeholder="<?php echo t('Enter your reason...');?>">
+                    <input type="text" name="other_reason" id="otherReason" class="form-control mt-2 d-none"
+                        placeholder="<?php echo t('Enter your reason...');?>">
 
                     <textarea name="comment" class="form-control" rows="3"
                         placeholder="Describe the scam..."></textarea>
@@ -1095,15 +1235,15 @@ echo "<li>".htmlspecialchars($t)."</li>";
 </html>
 
 <script>
-document.addEventListener("DOMContentLoaded", function(){
+document.addEventListener("DOMContentLoaded", function() {
 
     const reasonSelect = document.getElementById("reasonSelect");
     const otherInput = document.getElementById("otherReason");
 
-    if(reasonSelect){
-        reasonSelect.addEventListener("change", function(){
+    if (reasonSelect) {
+        reasonSelect.addEventListener("change", function() {
 
-            if(this.value === "Other"){
+            if (this.value === "Other") {
                 otherInput.classList.remove("d-none");
                 otherInput.required = true;
             } else {

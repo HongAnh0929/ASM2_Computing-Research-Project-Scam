@@ -1,30 +1,82 @@
 <?php
 session_start();
-require_once 'send_otp.php';
 require_once '../Database/database.php';
+require_once '../vendor/autoload.php';
+require_once 'send_otp.php'; // đảm bảo có sendOTPLogin
+// nếu chưa có file logger.php thì dán luôn function logActivity dưới đây
 
-if(!isset($_SESSION['resend_count'])){
-    $_SESSION['resend_count'] = 0;
+use Dotenv\Dotenv;
+
+/* ================= ENV ================= */
+$dotenv = Dotenv::createImmutable(__DIR__);
+$dotenv->load();
+$secret_key = $_ENV['SECRET_KEY'] ?? die("SECRET_KEY missing");
+
+/* ================= LOGGER ================= */
+function encryptData($data,$key){
+    $iv = random_bytes(16);
+    $encrypted = openssl_encrypt($data,'AES-256-CBC',$key,OPENSSL_RAW_DATA,$iv);
+    $hmac = hash_hmac('sha256',$iv.$encrypted,$key,true);
+    return base64_encode($iv.$encrypted.$hmac);
 }
 
-/* ===== RESEND ===== */
-if(isset($_POST['resend'])){
+function logActivity($conn, $user_id, $username, $role, $action, $target, $alert_type, $secret_key){
+    $username_enc = encryptData($username,$secret_key);
+    $action_enc   = encryptData($action,$secret_key);
+    $target_enc   = encryptData($target,$secret_key);
+    $ip_enc       = encryptData($_SERVER['REMOTE_ADDR'],$secret_key);
+    $ua_enc       = encryptData($_SERVER['HTTP_USER_AGENT'],$secret_key);
 
+    $username_hash = hash_hmac('sha256',$username,$secret_key);
+    $target_hash   = hash_hmac('sha256',$target,$secret_key);
+    $ip_hash       = hash_hmac('sha256',$_SERVER['REMOTE_ADDR'],$secret_key);
+
+    $stmt = $conn->prepare("
+        INSERT INTO activity_logs 
+        (user_id, username_encrypted, username_hash, role,
+         action, action_encrypted,
+         target_encrypted, target_hash,
+         ip_address_encrypted, ip_hash,
+         user_agent_encrypted, alert_type)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    ");
+
+    $stmt->bind_param("isssssssssss",
+        $user_id,
+        $username_enc,
+        $username_hash,
+        $role,
+        $action,
+        $action_enc,
+        $target_enc,
+        $target_hash,
+        $ip_enc,
+        $ip_hash,
+        $ua_enc,
+        $alert_type
+    );
+
+    $stmt->execute();
+}
+
+/* ================= RESEND OTP ================= */
+if(isset($_POST['resend'])){
     if(empty($_SESSION['login_temp'])){
         echo json_encode(["status"=>"EXPIRED"]);
         exit;
     }
 
-    // chống spam
-if(isset($_SESSION['last_resend']) && time() - $_SESSION['last_resend'] < 30){
-    echo json_encode(["status"=>"WAIT"]);
-    exit;
-}
-$_SESSION['last_resend'] = time();
+    // chống spam 30s
+    if(isset($_SESSION['last_resend']) && time() - $_SESSION['last_resend'] < 30){
+        echo json_encode(["status"=>"WAIT"]);
+        exit;
+    }
+    $_SESSION['last_resend'] = time();
 
-// reset attempts
-$_SESSION['otp_attempts'] = 0;
+    // reset attempts
+    $_SESSION['otp_attempts'] = 0;
 
+    if(!isset($_SESSION['resend_count'])) $_SESSION['resend_count'] = 0;
     if($_SESSION['resend_count'] >= 5){
         echo json_encode(["status"=>"LIMIT"]);
         exit;
@@ -33,14 +85,15 @@ $_SESSION['otp_attempts'] = 0;
     $_SESSION['resend_count']++;
 
     $otp = random_int(100000,999999);
-
     $_SESSION['otp'] = password_hash($otp,PASSWORD_DEFAULT);
     $_SESSION['otp_time'] = time();
 
     $email = $_SESSION['login_temp']['email'];
     $username = $_SESSION['login_temp']['username'];
 
-    sendOTPRegister($email,$username,$otp);
+    sendOTPLogin($email,$username,$otp);
+
+    logActivity($conn, $_SESSION['login_temp']['user_id'], $username, $_SESSION['login_temp']['role'], "OTP_RESEND", $username, "INFO", $secret_key);
 
     echo json_encode([
         "status"=>"RESENT",
@@ -49,9 +102,8 @@ $_SESSION['otp_attempts'] = 0;
     exit;
 }
 
-/* ===== VERIFY ===== */
+/* ================= VERIFY OTP ================= */
 if($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['otp'])){
-
     if(empty($_SESSION['otp']) || empty($_SESSION['login_temp'])){
         echo json_encode(["status"=>"EXPIRED"]);
         exit;
@@ -62,41 +114,45 @@ if($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['otp'])){
         exit;
     }
 
-    $_SESSION['otp_attempts'] = ($_SESSION['otp_attempts'] ?? 0);
+    $_SESSION['otp_attempts'] = $_SESSION['otp_attempts'] ?? 0;
 
     if($_SESSION['otp_attempts'] >= 3){
+        $user_id = $_SESSION['login_temp']['user_id'];
+
+        logActivity($conn, $user_id, $_SESSION['login_temp']['username'], $_SESSION['login_temp']['role'], "OTP_FAILED_LOCK", $_SESSION['login_temp']['username'], "HIGH", $secret_key);
+
+        $stmt = $conn->prepare("UPDATE users SET is_locked=1, status='Blocked' WHERE id=?");
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+
         session_unset();
         echo json_encode(["status"=>"LOCKED"]);
         exit;
     }
 
     if(password_verify($_POST['otp'], $_SESSION['otp'])){
-
         $_SESSION['user_id'] = $_SESSION['login_temp']['user_id'];
         $_SESSION['username'] = $_SESSION['login_temp']['username'];
         $_SESSION['role'] = $_SESSION['login_temp']['role'];
 
- $stmt = $conn->prepare("UPDATE users SET status='Active' WHERE id=?");
+        $stmt = $conn->prepare("UPDATE users SET status='Active' WHERE id=?");
         $stmt->bind_param("i", $_SESSION['user_id']);
         $stmt->execute();
-        
-        $role = $_SESSION['role'];
+
+        logActivity($conn, $_SESSION['user_id'], $_SESSION['username'], $_SESSION['role'], "LOGIN_SUCCESS", $_SESSION['username'], "INFO", $secret_key);
 
         unset($_SESSION['login_temp'],$_SESSION['otp'],$_SESSION['otp_time']);
 
         echo json_encode([
             "status"=>"SUCCESS",
-            "role"=>$role
+            "role"=>$_SESSION['role']
         ]);
         exit;
-
     } else {
-
         $_SESSION['otp_attempts']++;
+        logActivity($conn, $_SESSION['login_temp']['user_id'], $_SESSION['login_temp']['username'], $_SESSION['login_temp']['role'], "OTP_INVALID", $_SESSION['login_temp']['username'], "WARNING", $secret_key);
 
-        echo json_encode([
-            "status"=>"INVALID"
-        ]);
+        echo json_encode(["status"=>"INVALID"]);
         exit;
     }
 }

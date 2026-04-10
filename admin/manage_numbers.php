@@ -34,22 +34,26 @@ function decryptData($data){
     return openssl_decrypt($enc,'aes-256-cbc',$secret_key,OPENSSL_RAW_DATA,$iv);
 }
 
-/* ================= ACTIVITY LOG ================= */
-function logActivity($conn,$action,$target){
+/* ================= HASH DATA ================= */
+function hashData($data){
+    global $secret_key;
+    return hash_hmac('sha256', $data, $secret_key);
+}
 
+/* ================= ACTIVITY LOG ================= */
+function logActivity($conn,$action,$target=""){
     global $secret_key;
 
     $user_id = $_SESSION['user_id'] ?? null;
-    $username = $_SESSION['username'];
-    $role = $_SESSION['role'];
-
-    $ip = $_SERVER['REMOTE_ADDR'];
-    $ua = $_SERVER['HTTP_USER_AGENT'];
+    $username = $_SESSION['username'] ?? '';
+    $role = $_SESSION['role'] ?? '';
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+    $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
 
     /* HASH */
-    $username_hash = hash_hmac('sha256',$username,$secret_key);
-    $target_hash = hash_hmac('sha256',$target,$secret_key);
-    $ip_hash = hash_hmac('sha256',$ip,$secret_key);
+    $username_hash = hashData($username);
+    $target_hash = hashData($target);
+    $ip_hash = hashData($ip);
 
     /* ENCRYPT */
     $username_enc = encryptData($username);
@@ -90,6 +94,21 @@ function logActivity($conn,$action,$target){
 $action = $_GET['action'] ?? 'list';
 $search = $_GET['keyword'] ?? '';
 
+/* ================= SEARCH ================= */
+if($search != ""){
+    $search_log = $search;
+    logActivity($conn,"SEARCH_NUMBER",$search_log);
+    $search = trim($search);
+    $search_hash = hashData($search);
+
+    $stmt = $conn->prepare("SELECT * FROM phonenumbers WHERE phonenumber_hash=? ORDER BY id DESC");
+    $stmt->bind_param("s",$search_hash);
+    $stmt->execute();
+    $result = $stmt->get_result();
+} else {
+    $result = mysqli_query($conn,"SELECT * FROM phonenumbers ORDER BY id DESC");
+}
+
 /* ================= DELETE ================= */
 if($action == "delete"){
     $id = intval($_GET['id']);
@@ -121,7 +140,7 @@ if(isset($_POST['add_number'])){
     $country = $_POST['country'];
     $description = $_POST['description'];
 
-    $phone_hash = hash_hmac('sha256',$phone,$secret_key);
+    $phone_hash = hashData($phone);
 
     $stmt = $conn->prepare("SELECT id FROM phonenumbers WHERE phonenumber_hash=?");
     $stmt->bind_param("s",$phone_hash);
@@ -157,15 +176,18 @@ if(isset($_POST['add_number'])){
 /* ================= UPDATE ================= */
 if(isset($_POST['update_number'])){
     $id = intval($_POST['id']);
-
     $phone_raw = $_POST['phonenumber'];
     $phone = preg_replace('/\D/', '', $phone_raw);
+
+    if(substr($phone,0,2)=="84") $phone="0".substr($phone,2);
+    if(substr($phone,0,4)=="0084") $phone="0".substr($phone,4);
+    if($phone == "") $phone = "Unknown";
 
     $type = $_POST['type'];
     $country = $_POST['country'];
     $description = $_POST['description'];
 
-    $phone_hash = hash_hmac('sha256',$phone,$secret_key);
+    $phone_hash = hashData($phone);
 
     $stmt = $conn->prepare("
         UPDATE phonenumbers
@@ -185,16 +207,21 @@ if(isset($_POST['update_number'])){
 
     $stmt->execute();
 
-    logActivity($conn,"UPDATE_NUMBER",$phone);
+    $log_target = $phone;
+    if($country != "") $log_target .= " | " . $country;
+    if($description != "") $log_target .= " | " . $description;
+
+    logActivity($conn,"UPDATE_NUMBER",$log_target);
 
     header("Location: manage_numbers.php");
     exit;
 }
 
 /* ================= LIST ================= */
-$result = mysqli_query($conn,"SELECT * FROM phonenumbers ORDER BY id DESC");
+if($action=='list'){
+    $result = mysqli_query($conn,"SELECT * FROM phonenumbers ORDER BY id DESC");
+}
 ?>
-
 
 
 <!DOCTYPE html>
@@ -363,13 +390,86 @@ $result = mysqli_query($conn,"SELECT * FROM phonenumbers ORDER BY id DESC");
 
     <div class="content">
         <div class="container mt-1">
+
             <?php if($action == "list"){ ?>
+
             <h1>Phone Number Management</h1>
+
+            <!-- SEARCH + ADD BUTTON -->
+            <div class="d-flex justify-content-between mb-3 mt-4">
+                <form method="GET" class="d-flex" action="search.php" style="max-width:400px; width:100%;">
+                    <input type="text" name="keyword" class="form-control me-2" placeholder="Search phone..."
+                        value="<?php echo htmlspecialchars($search); ?>">
+                    <button class="btn btn-primary me-2">
+                        <i class="bi bi-search"></i>
+                    </button>
+                    <a href="manage_numbers.php" class="btn btn-secondary">Reset</a>
+                </form>
+
+                <a href="?action=add" class="btn btn-success">Add Phone</a>
+            </div>
+
+            <!-- TABLE -->
+            <table class="table table-bordered table-striped">
+                <thead class="table-dark">
+                    <tr>
+                        <th>ID</th>
+                        <th>Phone</th>
+                        <th>Type</th>
+                        <th>Country</th>
+                        <th>Description</th>
+                        <th>Reports</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    <?php while($row=mysqli_fetch_assoc($result)):
+                        $phone = decryptData($row['phonenumber_encrypted']);
+
+                        $rowClass = "";
+                        if($row['report_count'] >= 5){ $rowClass = "table-danger"; }
+                        elseif($row['report_count'] >= 3){ $rowClass = "table-warning"; }
+                        elseif($row['report_count'] > 0){ $rowClass = "table-info"; }
+                    ?>
+                    <tr class="<?php echo $rowClass; ?>">
+                        <td><?php echo $row['id']; ?></td>
+                        <td><?php echo htmlspecialchars($phone); ?></td>
+
+                        <td>
+                            <?php
+                            if($row['type']=="Scam"){ echo "<span class='text-danger fw-bold'>Scam</span>"; }
+                            elseif($row['type']=="Legitimate"){ echo "<span class='text-success fw-bold'>Legitimate</span>"; }
+                            else{ echo "<span class='text-secondary'>Unknown</span>"; }
+                            ?>
+                        </td>
+
+                        <td><?php echo htmlspecialchars(decryptData($row['country_encrypted'])); ?></td>
+                        <td><?php echo htmlspecialchars(decryptData($row['description_encrypted'])); ?></td>
+
+                        <td><?php echo $row['report_count']; ?></td>
+
+                        <td class="d-flex gap-1">
+                            <a href="manage_numbers.php?action=edit&id=<?php echo $row['id'] ?>"
+                                class="btn btn-warning btn-sm">Edit</a>
+
+                            <a href="manage_numbers.php?action=delete&id=<?php echo $row['id'] ?>"
+                                class="btn btn-danger btn-sm"
+                                onclick="return confirm('Delete this number: <?php echo htmlspecialchars($phone); ?> ?')">
+                                Delete
+                            </a>
+                        </td>
+                    </tr>
+                    <?php endwhile; ?>
+                </tbody>
+            </table>
+
             <?php } ?>
+
 
             <!-- ADD FORM -->
             <?php if($action == "add"){ ?>
-            <h4>Add Phone Number</h4>
+            <h2>Add Phone Number</h2>
             <form method="POST">
                 <label class="mt-3">Phone Number</label>
                 <input type="text" name="phonenumber" class="form-control mb-2" required>
@@ -392,11 +492,11 @@ $result = mysqli_query($conn,"SELECT * FROM phonenumbers ORDER BY id DESC");
 
             <!-- EDIT FORM -->
             <?php if($action == "edit"):
-            $id = intval($_GET['id']);
-            $row = mysqli_fetch_assoc(mysqli_query($conn,"SELECT * FROM phonenumbers WHERE id='$id'"));
-            $phone_dec = decryptData($row['phonenumber'],$secret_key);
-        ?>
-            <h4>Edit Phone Number</h4>
+                $id = intval($_GET['id']);
+                $row = mysqli_fetch_assoc(mysqli_query($conn,"SELECT * FROM phonenumbers WHERE id='$id'"));
+                $phone_dec = decryptData($row['phonenumber_encrypted']);
+            ?>
+            <h2>Edit Phone Number</h2>
             <form method="POST">
                 <input type="hidden" name="id" value="<?php echo $row['id']; ?>">
                 <label class="mt-3">Phone Number</label>
@@ -410,10 +510,11 @@ $result = mysqli_query($conn,"SELECT * FROM phonenumbers ORDER BY id DESC");
                 </select>
                 <label class="mt-3">Country</label>
                 <input type="text" name="country" class="form-control mb-2"
-                    value="<?php echo htmlspecialchars($row['country']); ?>">
+                    value="<?php echo htmlspecialchars(decryptData($row['country_encrypted'])); ?>">
                 <label class="mt-3">Description</label>
-                <textarea name="description"
-                    class="form-control mb-2"><?php echo htmlspecialchars($row['description']); ?></textarea>
+                <textarea class="form-control mb-2" name="description">
+                    <?php echo htmlspecialchars(decryptData($row['description_encrypted'])); ?>
+                </textarea>
                 <div class="d-flex justify-content-between mt-4">
                     <button class="btn btn-primary" name="update_number">Update</button>
                     <a href="manage_numbers.php" class="btn btn-secondary">Cancel</a>
@@ -421,63 +522,6 @@ $result = mysqli_query($conn,"SELECT * FROM phonenumbers ORDER BY id DESC");
             </form>
             <?php endif; ?>
 
-            <!-- SEARCH + ADD BUTTON -->
-            <div class="d-flex justify-content-between mb-3 mt-4">
-                <form method="GET" class="d-flex" action="search.php" style="max-width:400px; width:100%;">
-                    <input type="text" name="keyword" class="form-control me-2" placeholder="Search phone..."
-                        value="<?php echo htmlspecialchars($search); ?>">
-                    <button class="btn btn-primary me-2">
-                        <i class="bi bi-search"></i>
-                    </button> <a href="manage_numbers.php" class="btn btn-secondary">Reset</a>
-                </form>
-                <a href="?action=add" class="btn btn-success">Add Phone</a>
-            </div>
-
-            <!-- TABLE -->
-            <table class="table table-bordered table-striped">
-                <thead class="table-dark">
-                    <tr>
-                        <th>ID</th>
-                        <th>Phone</th>
-                        <th>Type</th>
-                        <th>Country</th>
-                        <th>Description</th>
-                        <th>Reports</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php while($row=mysqli_fetch_assoc($result)):
-                $phone = decryptData($row['phonenumber'],$secret_key);
-
-                $rowClass = "";
-                if($row['report_count'] >= 5){ $rowClass = "table-danger"; }
-                elseif($row['report_count'] >= 3){ $rowClass = "table-warning"; }
-                elseif($row['report_count'] > 0){ $rowClass = "table-info"; }
-            ?>
-                    <tr class="<?php echo $rowClass; ?>">
-                        <td><?php echo $row['id']; ?></td>
-                        <td><?php echo htmlspecialchars($phone); ?></td>
-                        <td>
-                            <?php
-                        if($row['type']=="Scam"){ echo "<span class='text-danger fw-bold'>Scam</span>"; }
-                        elseif($row['type']=="Legitimate"){ echo "<span class='text-success fw-bold'>Legitimate</span>"; }
-                        else{ echo "<span class='text-secondary'>Unknown</span>"; }
-                        ?>
-                        </td>
-                        <td><?php echo $row['country']; ?></td>
-                        <td><?php echo $row['description']; ?></td>
-                        <td class="d-flex gap-1">
-                            <a href="manage_numbers.php?action=edit&id=<?php echo $row['id'] ?>"
-                                class="btn btn-warning btn-sm">Edit</a>
-                            <a href="manage_numbers.php?action=delete&id=<?php echo $row['id'] ?>"
-                                class="btn btn-danger btn-sm"
-                                onclick="return confirm('Delete this number: <?php echo htmlspecialchars($phone); ?> ?')">Delete</a>
-                        </td>
-                    </tr>
-                    <?php endwhile; ?>
-                </tbody>
-            </table>
         </div>
     </div>
 

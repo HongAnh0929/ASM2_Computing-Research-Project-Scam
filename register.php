@@ -14,8 +14,24 @@ $dotenv->load();
 
 if(empty($_ENV['SECRET_KEY'])) die("SECRET_KEY missing");
 
-$HASH_KEY = $_ENV['SECRET_KEY'];   // dùng cho hash
-$ENC_KEY  = $_ENV['SECRET_KEY'];   // (có thể tách riêng nếu muốn)
+$HASH_KEY = $_ENV['SECRET_KEY'];
+$ENC_KEY  = $_ENV['SECRET_KEY'];
+
+/* ===== LANG ===== */
+// Xử lý thay đổi ngôn ngữ
+if (isset($_GET['lang']) && in_array($_GET['lang'], ['en','vi'])) {
+
+    $_SESSION['lang'] = $_GET['lang'];
+
+    // Lấy đúng trang hiện tại (không bị quay về index)
+    $currentPage = strtok($_SERVER["REQUEST_URI"], '?');
+
+    header("Location: $currentPage");
+    exit;
+}
+
+$lang = $_SESSION['lang'] ?? 'en';
+$lang = ($lang === 'vi') ? 'vi' : 'en';
 
 /* ===== ENCRYPT ===== */
 function encryptData($data) {
@@ -23,13 +39,6 @@ function encryptData($data) {
     $iv = random_bytes(16);
     $enc = openssl_encrypt($data, 'aes-256-cbc', $ENC_KEY, OPENSSL_RAW_DATA, $iv);
     return base64_encode($iv . $enc);
-}
-
-/* ===== LANG ===== */
-if (isset($_GET['lang']) && in_array($_GET['lang'], ['en','vi'])) {
-    $_SESSION['lang'] = $_GET['lang'];
-    header("Location: ".$_SERVER['PHP_SELF']);
-    exit;
 }
 
 /* ===== CSRF ===== */
@@ -51,16 +60,16 @@ function normalizePhone($phone){
     return $phone;
 }
 
-/* ===== HANDLE POST ===== */
+/* ===================== HANDLE POST ===================== */
 if($_SERVER['REQUEST_METHOD'] === 'POST'){
 
-    /* CSRF */
+    /* ===== CSRF ===== */
     if(empty($_POST['csrf_token']) || 
        !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])){
         die("CSRF error");
     }
 
-    /* DATA */
+    /* ===== DATA ===== */
     $username = trim($_POST['username'] ?? '');
     $email    = strtolower(trim($_POST['email'] ?? ''));
     $phoneRaw = $_POST['phone'] ?? '';
@@ -70,8 +79,26 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
     $dob      = $_POST['dob'] ?? '';
     $gender   = $_POST['gender'] ?? '';
 
-    /* ===== VALIDATE ===== */
+    /* ===== CAPTCHA CHECK (FIXED) ===== */
+    $captcha_secret   = $_ENV['CAPTCHA_KEY'] ?? '';
+    $captcha_response = $_POST['g-recaptcha-response'] ?? '';
 
+    if(empty($captcha_response)){
+        $errors['captcha'] = "Please complete the CAPTCHA.";
+    } else {
+
+        $verify = file_get_contents(
+            "https://www.google.com/recaptcha/api/siteverify?secret=$captcha_secret&response=$captcha_response"
+        );
+
+        $captcha_data = json_decode($verify, true);
+
+        if(empty($captcha_data['success'])){
+            $errors['captcha'] = "CAPTCHA verification failed.";
+        }
+    }
+
+    /* ===== VALIDATION ===== */
     if(!preg_match('/^[A-Za-z0-9_]{6,20}$/',$username)){
         $errors['username'] = "Username must be 6-20 characters";
     }
@@ -100,26 +127,7 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
         $errors['confirm'] = "Password mismatch";
     }
 
-    /* ===== CHECK DUPLICATE ===== */
-    if(empty($errors)){
-        $username_hash = hash_hmac('sha256',$username,$HASH_KEY);
-        $email_hash    = hash_hmac('sha256',$email,$HASH_KEY);
-        $phone_hash    = hash_hmac('sha256',$phone,$HASH_KEY);
-
-        $stmt = $conn->prepare("
-            SELECT id FROM users 
-            WHERE username_hash=? OR email_hash=? OR phone_hash=?
-        ");
-        $stmt->bind_param("sss",$username_hash,$email_hash,$phone_hash);
-        $stmt->execute();
-        $stmt->store_result();
-
-        if($stmt->num_rows > 0){
-            $errors['general'] = "Username, Email or Phone already exists";
-        }
-    }
-
-    /* ===== SEND OTP ===== */
+    /* ===== IF OK → SEND OTP ===== */
     if(empty($errors)){
 
         $_SESSION['register_data'] = [
@@ -141,13 +149,11 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
         $_SESSION['otp'] = password_hash($otp,PASSWORD_DEFAULT);
         $_SESSION['otp_time'] = time();
 
-       if(sendOTPRegister($email,$username,$otp)){
-    
-    $_SESSION['otp_message'] = "OTP has been sent to your email. Please check your inbox.";
-
-    header("Location: verify_otp_register.php");
-    exit;
-} else {
+        if(sendOTPRegister($email,$username,$otp)){
+            $_SESSION['otp_message'] = "OTP sent successfully.";
+            header("Location: verify_otp_register.php");
+            exit;
+        } else {
             $errors['general'] = "Send OTP failed";
         }
     }
@@ -163,7 +169,7 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
-
+    <script src="https://www.google.com/recaptcha/api.js?hl=<?php echo $lang; ?>" async defer></script>
     <style>
     body {
         background-image: url("img/background.png");
@@ -337,19 +343,29 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
                 <input type="text" class="form-control" name="username" placeholder="<?php echo t("Enter username"); ?>"
                     value="<?php echo htmlspecialchars($username); ?>" required>
             </div>
+            <div class="error">
+                <?php echo $errors['username'] ?? '' ?>
+            </div>
 
             <!-- Email -->
             <div class="mb-3">
                 <label class="form-label"><?php echo t("Email"); ?></label>
-                <input type="email" class="form-control" name="email" placeholder="<?php echo t("Enter email"); ?>" value="<?php echo htmlspecialchars($email); ?>"
-                    required>
+                <input type="email" class="form-control" name="email" placeholder="<?php echo t("Enter email"); ?>"
+                    value="<?php echo htmlspecialchars($email); ?>" required>
+            </div>
+            <div class="error">
+                <?php echo $errors['email'] ?? '' ?>
             </div>
 
             <!-- Phone -->
             <div class="mb-3">
                 <label class="form-label"><?php echo t("Phone"); ?></label>
-                <input type="text" class="form-control" name="phone" placeholder="<?php echo t("Enter phone"); ?>" value="<?php echo htmlspecialchars($phone); ?>"
+                <input type="text" class="form-control" name="phone" placeholder="<?php echo t("Enter phone"); ?>"
+                    value="<?php echo htmlspecialchars($phone); ?>"
                     oninput="this.value=this.value.replace(/[^0-9]/g,'')" pattern="[0-9]+" maxlength="11" required>
+            </div>
+            <div class="error">
+                <?php echo $errors['phone'] ?? '' ?>
             </div>
 
             <!-- DOB -->
@@ -423,24 +439,31 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
                 <div id="confirm-error" class="error">
                     <?php echo $errors['confirm'] ?? '' ?>
                 </div>
+            </div>
 
-                <div class="d-flex justify-content-between mt-4">
+            <!-- CAPTCHA -->
+            <div class="mb-3">
+                <div class="g-recaptcha" data-sitekey="6LdKbrAsAAAAAJBaGDJVPCrwjcSt9mnsyLGp_Iii"></div>
+                <div class="error"><?php echo $errors['captcha'] ?? ''; ?></div>
+            </div>
 
-                    <button type="submit" class="btn btn-primary">
-                        <?php echo t("Register");?>
-                    </button>
+            <div class="d-flex justify-content-between mt-4">
 
-                    <a href="login.php" class="btn btn-secondary">
-                        <?php echo t("← Back");?>
-                    </a>
+                <button type="submit" class="btn btn-primary">
+                    <?php echo t("Register");?>
+                </button>
 
-                </div>
+                <a href="login.php" class="btn btn-secondary">
+                    <?php echo t("← Back");?>
+                </a>
 
-                <div class="links">
+            </div>
 
-                    <a href="login.php"><?php echo t("You already have an account. Login here");?></a>
+            <div class="links">
 
-                </div>
+                <a href="login.php"><?php echo t("You already have an account. Login here");?></a>
+
+            </div>
 
         </form>
     </div>

@@ -164,14 +164,13 @@ if(isset($_SESSION['user_id'])){
                         <a class="nav-link active" aria-current="page" href="index.php"><?php echo t("HOME");?></a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" aria-current="page"
-                            href="phonenumber.php"><?php echo t("PHONE NUMBER");?></a>
+                        <a class="nav-link active" aria-current="page" href="phonenumber.php"><?php echo t("PHONE NUMBER");?></a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" aria-current="page" href="#"><?php echo t("URL");?></a>
+                        <a class="nav-link active" aria-current="page" href="scan_url.php"><?php echo t("URL");?></a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" aria-current="page" href="#"><?php echo t("EMAIL");?></a>
+                        <a class="nav-link active" aria-current="page" href="scan_email.php"><?php echo t("EMAIL");?></a>
                     </li>
                 </ul>
 

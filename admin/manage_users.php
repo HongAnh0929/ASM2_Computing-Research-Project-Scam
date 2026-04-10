@@ -13,6 +13,9 @@ $secret_key = $_ENV['SECRET_KEY'] ?? die("SECRET_KEY missing");
 
 /* ===== CHECK ADMIN ===== */
 if(!isset($_SESSION['role']) || $_SESSION['role'] != "Admin"){
+
+    logActivity($conn, "UNAUTHORIZED_ACCESS", "manage_users");
+
     header("Location: ../index.php");
     exit;
 }
@@ -110,8 +113,19 @@ $action = $_GET['action'] ?? 'list';
 if($action == "delete"){
     $id = intval($_GET['id']);
 
-    logActivity($conn, "DELETE_USER", "ID: ".$id);
+/* LẤY USER TRƯỚC KHI XÓA */
+    $stmt = $conn->prepare("SELECT username_encrypted FROM users WHERE id=?");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $user = $res->fetch_assoc();
 
+    $username = decryptData($user['username_encrypted']);
+
+/* LOG CHI TIẾT */
+    logActivity($conn, "DELETE_USER", "ID: $id | Username: $username");
+
+/* DELETE */
     $stmt = $conn->prepare("DELETE FROM users WHERE id=?");
     $stmt->bind_param("i", $id);
     $stmt->execute();
@@ -172,6 +186,8 @@ if(isset($_POST['add_user'])){
 
         if($check->get_result()->num_rows > 0){
             $errors['general'] = "User already exists";
+
+            logActivity($conn, "ADD_USER_FAILED", $username);
         } else {
 
             $status = "Inactive";
@@ -211,17 +227,25 @@ if(isset($_POST['add_user'])){
 if(isset($_POST['update_user'])){
 
     $id = intval($_POST['id']);
+    $new_role = $_POST['role'];
 
-    $allowed_roles = ['User','Employee','Admin'];
-    if(!in_array($_POST['role'], $allowed_roles)){
-        die("Invalid role");
-    }
+/* LẤY ROLE CŨ */
+    $stmt = $conn->prepare("SELECT role FROM users WHERE id=?");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $old = $stmt->get_result()->fetch_assoc();
 
+/* UPDATE */
     $stmt = $conn->prepare("UPDATE users SET role=? WHERE id=?");
-    $stmt->bind_param("si", $_POST['role'], $id);
+    $stmt->bind_param("si", $new_role, $id);
     $stmt->execute();
 
-    logActivity($conn, "UPDATE_USER", "ID: ".$id);
+/* LOG */
+    logActivity(
+        $conn,
+        "UPDATE_USER",
+        "ID: $id | Role: ".$old['role']." -> ".$new_role
+    );
 
     header("Location: manage_users.php");
     exit;
@@ -497,35 +521,44 @@ if(isset($_POST['update_user'])){
             </form>
 
             <?php } elseif($action == "edit"){ 
-        $id = intval($_GET['id']);
-        $res = mysqli_query($conn,"SELECT * FROM users WHERE id='$id'");
-        $user = mysqli_fetch_assoc($res);
-        $username_dec = decryptData($user['username_encrypted']);
-        $email_dec = decryptData($user['email_encrypted']);
-        $phone_dec = decryptData($user['phone_encrypted']);
-        $dob_dec = decryptData($user['dob_encrypted']);
-        $gender_dec = decryptData($user['gender_encrypted']);
-    ?>
-            <form method="POST" class="mb-4">
+                $id = intval($_GET['id']);
+                $res = mysqli_query($conn,"SELECT * FROM users WHERE id='$id'");
+                $user = mysqli_fetch_assoc($res);
+                $username_dec = decryptData($user['username_encrypted']);
+                $email_dec = decryptData($user['email_encrypted']);
+                $phone_dec = decryptData($user['phone_encrypted']);
+                $dob_dec = decryptData($user['dob_encrypted']);
+                $gender_dec = decryptData($user['gender_encrypted']);
+            ?>
+
+            <h2>Edit User</h2>
+            <form method="POST">
                 <input type="hidden" name="id" value="<?php echo $user['id']; ?>">
+                <label class="mt-2">Username</label>
                 <input type="text" name="username" value="<?php echo htmlspecialchars($username_dec); ?>"
                     class="form-control mb-2">
+                <label class="mt-2">Email</label>
                 <input type="email" name="email" value="<?php echo htmlspecialchars($email_dec); ?>"
                     class="form-control mb-2">
+                <label class="mt-2">Phone</label>
                 <input type="text" name="phone" value="<?php echo htmlspecialchars($phone_dec); ?>"
                     class="form-control mb-2">
+                <label class="mt-2">DOB</label>
                 <input type="date" name="dob" value="<?php echo $dob_dec; ?>" class="form-control mb-2"
                     max="<?php echo date('Y-m-d'); ?>">
+                <label class="mt-2">Gender</label>
                 <select name="gender" class="form-control mb-2">
                     <option value="">Select Gender</option>
                     <option <?php if($gender_dec=="Male") echo "selected"; ?>>Male</option>
                     <option <?php if($gender_dec=="Female") echo "selected"; ?>>Female</option>
                 </select>
+                <label class="mt-2">Role</label>
                 <select name="role" class="form-control mb-2">
                     <option <?php if($user['role']=="User") echo "selected"; ?>>User</option>
                     <option <?php if($user['role']=="Employee") echo "selected"; ?>>Employee</option>
                     <option <?php if($user['role']=="Admin") echo "selected"; ?>>Admin</option>
                 </select>
+                <label class="mt-2">Status</label>
                 <input type="text" class="form-control mb-2" value="<?php echo $user['status']; ?>" readonly>
                 <button type="submit" name="update_user" class="btn btn-primary">Update</button>
                 <a href="manage_users.php" class="btn btn-secondary">Cancel</a>

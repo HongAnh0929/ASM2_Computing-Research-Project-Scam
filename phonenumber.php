@@ -223,8 +223,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 </head>
 
 <body class="d-flex flex-column min-vh-100">
-    <!-- NAVBAR -->
-
+    <!-- ================= NAVBAR ================= -->
     <nav class="navbar navbar-expand-lg navbar-dark w-100 fixed-top shadow-sm">
         <div class="container-fluid">
 
@@ -246,10 +245,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                             href="phonenumber.php"><?php echo t("PHONE NUMBER");?></a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" aria-current="page" href="#"><?php echo t("URL");?></a>
+                        <a class="nav-link active" aria-current="page" href="scan_url.php"><?php echo t("URL");?></a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" aria-current="page" href="#"><?php echo t("EMAIL");?></a>
+                        <a class="nav-link active" aria-current="page"
+                            href="scan_email.php"><?php echo t("EMAIL");?></a>
                     </li>
                 </ul>
 
@@ -285,7 +285,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
                             <li class="dropdown-header">
                                 <a href="profile.php" class="text-decoration-none text-dark">
-                                    <?php echo htmlspecialchars($_SESSION['user_name']); ?>
+                                    <?php echo htmlspecialchars($_SESSION['username'] ?? 'Guest') ?>
                                 </a>
                             </li>
 

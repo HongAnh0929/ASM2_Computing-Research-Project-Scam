@@ -1,24 +1,79 @@
 <?php
 session_start();
 ob_start();
+
 require_once '../Database/database.php';
 require_once 'send_otp.php';
 require_once '../vendor/autoload.php';
 require_once 'functions/translate.php';
 
-
-$lang = $_SESSION['lang'] ?? 'en';
-
 use Dotenv\Dotenv;
 
+/* ================= ENV ================= */
 $dotenv = Dotenv::createImmutable(__DIR__);
 $dotenv->load();
 
 $secret_key = $_ENV['SECRET_KEY'] ?? die("SECRET_KEY missing");
 
+$lang = $_SESSION['lang'] ?? 'en';
 $errors = [];
 
-// Xử lý thay đổi ngôn ngữ
+/* ================= ENCRYPT ================= */
+function encryptData($data,$key){
+    $iv = random_bytes(16);
+    $encrypted = openssl_encrypt($data,'AES-256-CBC',$key,OPENSSL_RAW_DATA,$iv);
+    $hmac = hash_hmac('sha256',$iv.$encrypted,$key,true);
+    return base64_encode($iv.$encrypted.$hmac);
+}
+
+/* ================= LOG ACTIVITY ================= */
+function logActivity($conn, $user_id, $username, $role, $action, $target, $alert_type, $secret_key){
+
+    $username_enc = encryptData($username,$secret_key);
+    $action_enc   = encryptData($action,$secret_key);
+    $target_enc   = encryptData($target,$secret_key);
+    $ip_enc       = encryptData($_SERVER['REMOTE_ADDR'],$secret_key);
+    $ua_enc       = encryptData($_SERVER['HTTP_USER_AGENT'],$secret_key);
+
+    $username_hash = hash_hmac('sha256',$username,$secret_key);
+    $target_hash   = hash_hmac('sha256',$target,$secret_key);
+    $ip_hash       = hash_hmac('sha256',$_SERVER['REMOTE_ADDR'],$secret_key);
+
+    $stmt = $conn->prepare("
+        INSERT INTO activity_logs 
+        (user_id, username_encrypted, username_hash, role,
+         action, action_encrypted,
+         target_encrypted, target_hash,
+         ip_address_encrypted, ip_hash,
+         user_agent_encrypted, alert_type)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    ");
+
+    if(!$stmt){
+        die("Prepare failed: ".$conn->error);
+    }
+
+    $stmt->bind_param("isssssssssss",
+        $user_id,
+        $username_enc,
+        $username_hash,
+        $role,
+        $action,
+        $action_enc,
+        $target_enc,
+        $target_hash,
+        $ip_enc,
+        $ip_hash,
+        $ua_enc,
+        $alert_type
+    );
+
+    if(!$stmt->execute()){
+        die("Execute failed: ".$stmt->error);
+    }
+}
+
+/* ================= LANGUAGE ================= */
 if (isset($_GET['lang']) && in_array($_GET['lang'], ['en','vi'])) {
 
     $_SESSION['lang'] = $_GET['lang'];
@@ -30,13 +85,15 @@ if (isset($_GET['lang']) && in_array($_GET['lang'], ['en','vi'])) {
     exit;
 }
 
-/* ===== CSRF ===== */
+$lang = $_SESSION['lang'] ?? 'en';
+
+/* ================= CSRF ================= */
 if(empty($_SESSION['csrf_token'])){
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 $csrf_token = $_SESSION['csrf_token'];
 
-/* ===== LOGIN ===== */
+/* ================= LOGIN ================= */
 if($_SERVER['REQUEST_METHOD'] === 'POST'){
 
     if(!hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])){
@@ -53,22 +110,60 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
     $stmt->execute();
     $result = $stmt->get_result();
 
+    /* ===== CAPTCHA CHECK (FIXED) ===== */
+    $captcha_secret   = $_ENV['CAPTCHA_KEY'] ?? '';
+    $captcha_response = $_POST['g-recaptcha-response'] ?? '';
+
+    if(empty($captcha_response)){
+        $errors['captcha'] = "Please complete the CAPTCHA.";
+    } else {
+
+        $verify = file_get_contents(
+            "https://www.google.com/recaptcha/api/siteverify?secret=$captcha_secret&response=$captcha_response"
+        );
+
+        $captcha_data = json_decode($verify, true);
+
+        if(empty($captcha_data['success'])){
+            $errors['captcha'] = "CAPTCHA verification failed.";
+        }
+    }
+
+
+    /* ===== USER NOT FOUND ===== */
     if($result->num_rows === 0){
+
+        logActivity($conn, null, $username, "Guest", "LOGIN_FAILED_USER", $username, "WARNING", $secret_key);
+
         $errors['general'] = "User not found";
+
     } else {
 
         $user = $result->fetch_assoc();
 
+        /* ===== ACCOUNT LOCKED ===== */
         if($user['is_locked']){
+
+            logActivity($conn, $user['id'], $username, $user['role'], "LOGIN_BLOCKED", $username, "HIGH", $secret_key);
+
             $errors['general'] = "Account is locked";
         }
 
+        /* ===== STATUS BLOCKED ===== */
+        elseif($user['status'] === 'Blocked'){
+
+            logActivity($conn, $user['id'], $username, $user['role'], "LOGIN_BLOCKED_STATUS", $username, "HIGH", $secret_key);
+
+            $errors['general'] = "Account has been blocked";
+        }
+
+        /* ===== PASSWORD CORRECT ===== */
         elseif(password_verify($password, $user['password'])){
 
-            /* RESET FAIL */
+            // reset failed attempts
             $conn->query("UPDATE users SET failed_attempts=0 WHERE id=".$user['id']);
 
-            /* ===== DECRYPT EMAIL ===== */
+            // decrypt email
             $data = base64_decode($user['email_encrypted']);
             $iv = substr($data,0,16);
             $enc = substr($data,16);
@@ -79,7 +174,7 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
                 $errors['general'] = "Cannot decrypt email";
             } else {
 
-                /* ===== OTP ===== */
+                // OTP
                 $otp = random_int(100000,999999);
 
                 $_SESSION['otp'] = password_hash($otp,PASSWORD_DEFAULT);
@@ -98,25 +193,44 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
 
                 $_SESSION['otp_message'] = "OTP has been sent to your email.";
 
+                logActivity($conn, $user['id'], $username, $user['role'], "LOGIN_OTP_SENT", $username, "INFO", $secret_key);
+
                 header("Location: verify_otp_login.php");
                 exit;
             }
+        }
 
-        } else {
+        /* ===== WRONG PASSWORD ===== */
+        else {
 
             $attempts = $user['failed_attempts'] + 1;
 
             if($attempts >= 5){
-                $conn->query("UPDATE users SET failed_attempts=$attempts, is_locked=1 WHERE id=".$user['id']);
+
+                $conn->query("
+                    UPDATE users 
+                    SET failed_attempts=$attempts, is_locked=1, status='Blocked' 
+                    WHERE id=".$user['id']
+                );
+
+                logActivity($conn, $user['id'], $username, $user['role'], "ACCOUNT_LOCKED", $username, "HIGH", $secret_key);
+
                 $errors['general'] = "Account locked (too many attempts)";
+
             } else {
+
                 $conn->query("UPDATE users SET failed_attempts=$attempts WHERE id=".$user['id']);
+
+                logActivity($conn, $user['id'], $username, $user['role'], "LOGIN_WRONG_PASSWORD", $username, "WARNING", $secret_key);
+
                 $errors['general'] = "Wrong password ($attempts/5)";
             }
         }
     }
 }
 ?>
+
+
 
 <!DOCTYPE html>
 <html lang="en">
@@ -129,6 +243,8 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://www.google.com/recaptcha/api.js?hl=<?php echo $lang; ?>" async defer></script>
+
     <style>
     body {
         background-image: url("img/background.png");
@@ -257,6 +373,12 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
 
                     </div>
 
+                </div>
+
+                <!-- CAPTCHA -->
+                <div class="mb-3">
+                    <div class="g-recaptcha" data-sitekey="6LdKbrAsAAAAAJBaGDJVPCrwjcSt9mnsyLGp_Iii"></div>
+                    <div class="error"><?php echo $errors['captcha'] ?? ''; ?></div>
                 </div>
 
                 <div class="d-flex justify-content-between mt-3">

@@ -322,7 +322,7 @@ $_SESSION['attempts'] = 0;
 
                     setTimeout(() => {
                         window.location.href = "login.php";
-                    }, 1000);
+                    }, 5000);
 
                 } else {
                     locked = false;

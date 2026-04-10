@@ -3,14 +3,13 @@ session_start();
 require_once '../Database/database.php';
 require_once '../vendor/autoload.php';
 require_once 'functions/translate.php';
+require_once 'functions/security.php'; // chứa encryptData, decryptData, hashData
 
 use Dotenv\Dotenv;
 
 /* ================= ENV ================= */
 $dotenv = Dotenv::createImmutable(__DIR__);
 $dotenv->load();
-
-$secret_key = $_ENV['SECRET_KEY'] ?? die("SECRET_KEY missing");
 
 /* ================= LANGUAGE ================= */
 if (isset($_GET['lang']) && in_array($_GET['lang'], ['en','vi'])) {
@@ -19,7 +18,6 @@ if (isset($_GET['lang']) && in_array($_GET['lang'], ['en','vi'])) {
     header("Location: $currentPage");
     exit;
 }
-
 $lang = $_SESSION['lang'] ?? 'en';
 
 /* ================= CHECK LOGIN ================= */
@@ -27,36 +25,15 @@ if(!isset($_SESSION['user_id'])){
     header("Location: login.php");
     exit;
 }
-
 $user_id = $_SESSION['user_id'];
 
-/* ================= DECRYPT ================= */
-function decryptData($data,$key){
-    if(!$data) return null;
-
-    $data = base64_decode($data,true);
-    if($data===false) return null;
-
-    $iv = substr($data,0,16);
-    $hmac = substr($data,-32);
-    $encrypted = substr($data,16,-32);
-
-    if(!hash_equals(hash_hmac('sha256',$iv.$encrypted,$key,true),$hmac)){
-        return null;
-    }
-
-    return openssl_decrypt($encrypted,'AES-256-CBC',$key,OPENSSL_RAW_DATA,$iv);
-}
-
 /* ================= SEARCH ================= */
-$search = $_GET['search'] ?? '';
-$search = trim($search);
+$search = trim($_GET['search'] ?? '');
 
-if($search != ""){
-
-    // nếu nhập số → hash để tìm
+if($search !== ""){
+    // Nếu nhập số → hash để tìm
     $search_phone = preg_replace('/\D/', '', $search);
-    $phone_hash = hash_hmac('sha256', $search_phone, $secret_key);
+    $phone_hash = hashData($search_phone);
 
     $like = "%$search%";
 
@@ -66,20 +43,15 @@ if($search != ""){
         AND (phonenumber_hash = ? OR searched_at LIKE ?)
         ORDER BY searched_at DESC
     ");
-
-    $stmt->bind_param("iss",$user_id,$phone_hash,$like);
-
-}else{
-
+    $stmt->bind_param("iss", $user_id, $phone_hash, $like);
+} else {
     $stmt = $conn->prepare("
         SELECT * FROM search_history
-        WHERE user_id=?
+        WHERE user_id = ?
         ORDER BY searched_at DESC
     ");
-
-    $stmt->bind_param("i",$user_id);
+    $stmt->bind_param("i", $user_id);
 }
-
 $stmt->execute();
 $result = $stmt->get_result();
 ?>
@@ -88,35 +60,81 @@ $result = $stmt->get_result();
 <html lang="en">
 
 <head>
-
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
-
     <title><?php echo t("Search History");?></title>
 
     <style>
     body {
+        margin: 0;
+        padding: 0;
+        font-family: 'Inter', sans-serif;
         background-image: url("img/background.png");
         background-size: cover;
         background-position: center;
-        background-attachment: fixed;
+    }
 
-        padding-top: 10px;
+    .navbar {
+        background: rgba(0, 0, 0, 0.55);
+        backdrop-filter: blur(6px);
     }
 
     .overlay {
-        background: rgba(0, 0, 0, 0.55);
-        padding: 40px 0;
-        color: white;
+        min-height: 100vh;
         width: 100%;
-        min-height: calc(100vh - 70px);
+        background: rgba(0, 0, 0, 0.55);
+        flex: 1;
+        padding: 120px 20px 60px 20px;
+        /* top: tăng 120px để cách navbar vừa phải */
+        box-sizing: border-box;
         display: flex;
         flex-direction: column;
-        justify-content: center;
+        justify-content: flex-start;
+    }
+
+    .overlay .container {
+        margin-top: 5px;
+        /* đẩy nội dung xuống, tạo khoảng cách vừa phải với navbar */
+    }
+
+    h1.text-white {
+        margin-bottom: 20px;
+        /* tạo khoảng cách giữa tiêu đề và search bar */
+    }
+
+    .history-card {
+        background: white;
+        border-radius: 10px;
+        padding: 30px;
+        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+        overflow-x: auto;
+    }
+
+    .table-hover tbody tr:hover {
+        background-color: #f1f1f1;
+    }
+
+    .status-safe {
+        color: #16a34a;
+        font-weight: bold;
+    }
+
+    .status-scam {
+        color: #dc2626;
+        font-weight: bold;
+    }
+
+    .status-unknown {
+        color: #eab308;
+        font-weight: bold;
+    }
+
+    .highlight-row {
+        background-color: #fff3cd;
+        font-weight: 600;
     }
 
     /* Nút ngôn ngữ tổng thể */
@@ -159,46 +177,18 @@ $result = $stmt->get_result();
         transform: translateY(-1px);
     }
 
-    .navbar {
-        background: rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(6px);
-    }
-
-    .history-card {
-        background: white;
-        border-radius: 10px;
-        padding: 30px;
-        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
-    }
-
-    .status-safe {
-        color: #16a34a;
-        font-weight: bold;
-    }
-
-    .status-scam {
-        color: #dc2626;
-        font-weight: bold;
-    }
-
-    .status-unknown {
-        color: #eab308;
-        font-weight: bold;
-    }
-
-    .highlight-row {
-        background-color: #fff3cd;
-        font-weight: 600;
-    }
-
     .footer-custom {
         background: rgba(0, 0, 0, 0.75);
         color: white;
+        margin-top: auto;
+        padding: 15px 0;
+        text-align: center;
     }
 
     .footer-link {
         color: #ddd;
         text-decoration: none;
+        margin: 0 5px;
     }
 
     .footer-link:hover {
@@ -206,11 +196,11 @@ $result = $stmt->get_result();
         text-decoration: underline;
     }
     </style>
-
 </head>
 
 <body class="d-flex flex-column min-vh-100">
 
+    <!-- ================= NAVBAR ================= -->
     <nav class="navbar navbar-expand-lg navbar-dark w-100 fixed-top shadow-sm">
         <div class="container-fluid">
 
@@ -228,14 +218,13 @@ $result = $stmt->get_result();
                         <a class="nav-link active" aria-current="page" href="index.php"><?php echo t("HOME");?></a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" aria-current="page"
-                            href="phonenumber.php"><?php echo t("PHONE NUMBER");?></a>
+                        <a class="nav-link active" aria-current="page" href="phonenumber.php"><?php echo t("PHONE NUMBER");?></a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" aria-current="page" href="#"><?php echo t("URL");?></a>
+                        <a class="nav-link active" aria-current="page" href="scan_url.php"><?php echo t("URL");?></a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" aria-current="page" href="#"><?php echo t("EMAIL");?></a>
+                        <a class="nav-link active" aria-current="page" href="scan_email.php"><?php echo t("EMAIL");?></a>
                     </li>
                 </ul>
 
@@ -271,7 +260,7 @@ $result = $stmt->get_result();
 
                             <li class="dropdown-header">
                                 <a href="profile.php" class="text-decoration-none text-dark">
-                                    <?php echo htmlspecialchars($_SESSION['user_name']); ?>
+                                    <?php echo htmlspecialchars($_SESSION['username'] ?? 'Guest') ?>
                                 </a>
                             </li>
 
@@ -314,43 +303,24 @@ $result = $stmt->get_result();
     </nav>
 
     <div class="overlay">
-
         <div class="container">
 
             <!-- TITLE + SEARCH -->
-
             <div class="d-flex justify-content-between align-items-center mb-3">
-
                 <h1 class="text-white"><?php echo t("Phone Search History"); ?></h1>
-
                 <form class="d-flex" method="GET" action="history.php">
-
                     <div class="input-group" style="width:350px">
-
-                        <span class="input-group-text">
-                            <i class="bi bi-search"></i>
-                        </span>
-
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
                         <input class="form-control" type="text" name="search" placeholder="Search phone or date"
-                            value="<?php echo $_GET['search'] ?? ''; ?>">
-
-                        <button class="btn btn-success" type="submit">
-                            <?php echo t("Search");?>
-                        </button>
-
+                            value="<?php echo htmlspecialchars($search);?>">
+                        <button class="btn btn-success" type="submit"><?php echo t("Search");?></button>
                     </div>
-
                 </form>
-
             </div>
 
-
             <!-- TABLE -->
-
             <div class="history-card">
-
                 <table class="table table-hover">
-
                     <thead>
                         <tr>
                             <th>#</th>
@@ -359,68 +329,39 @@ $result = $stmt->get_result();
                             <th><?php echo t("Date");?></th>
                         </tr>
                     </thead>
-
                     <tbody>
-
                         <?php
-$i = 1;
-
+$i=1;
 while($row = $result->fetch_assoc()){
-
-    $phone = decryptData($row['phonenumber_encrypted'],$secret_key);
-
+    $phone = decryptData($row['phonenumber_encrypted']);
+    if(!$phone) $phone = t("Unknown"); // tránh lỗi null
     $highlight = "";
-
-    if($search != "" && (
-        strpos($phone,$search)!==false ||
-        strpos($row['searched_at'],$search)!==false
-    )){
+    if($search != "" && (strpos($phone,$search)!==false || strpos($row['searched_at'],$search)!==false)){
         $highlight = "highlight-row";
     }
 ?>
-
-                        <tr class="<?php echo $highlight; ?>">
-
-                            <td><?php echo $i++; ?></td>
-
-                            <td>
-                                <a href="result.php?phone=<?php echo urlencode($phone); ?>">
-                                    <?php echo htmlspecialchars($phone); ?>
-                                </a>
+                        <tr class="<?php echo $highlight;?>">
+                            <td><?php echo $i++;?></td>
+                            <td><a
+                                    href="result.php?phone=<?php echo urlencode($phone);?>"><?php echo htmlspecialchars($phone);?></a>
                             </td>
-
                             <td>
                                 <?php
 $type = $row['result_type'];
-
-if($type=="Legitimate"){
-    echo "<span class='status-safe'>".t("Legitimate")."</span>";
-}
-elseif($type=="Scam"){
-    echo "<span class='status-scam'>".t("Scam")."</span>";
-}
-else{
-    echo "<span class='status-unknown'>".t("Unknown")."</span>";
-}
+if($type=="Legitimate") echo "<span class='status-safe'>".t("Legitimate")."</span>";
+elseif($type=="Scam") echo "<span class='status-scam'>".t("Scam")."</span>";
+else echo "<span class='status-unknown'>".t("Unknown")."</span>";
 ?>
                             </td>
-
-                            <td><?php echo $row['searched_at']; ?></td>
-
+                            <td><?php echo $row['searched_at'];?></td>
                         </tr>
-
                         <?php } ?>
-
                     </tbody>
                 </table>
-
             </div>
 
-            <!-- BACK -->
             <div class="text-end mt-3">
-                <a href="index.php" class="btn btn-secondary">
-                    <?php echo t("← Back");?>
-                </a>
+                <a href="index.php" class="btn btn-secondary"><?php echo t("← Back");?></a>
             </div>
 
         </div>
@@ -429,23 +370,14 @@ else{
     <footer class="py-3 border-top footer-custom">
         <div class="container">
             <div class="d-flex justify-content-between align-items-center small">
-
-                <div>
-                    <?php echo t("© 2026 Scam Detection Platform – BTEC FPT"); ?>
-                </div>
-
-                <div>
-                    <a href="#" class="footer-link"><?php echo t("Privacy Policy");?></a>
-                    &middot;
-                    <a href="#" class="footer-link"><?php echo t("Terms & Conditions");?></a>
-                </div>
-
+                <div><?php echo t("© 2026 Scam Detection Platform – BTEC FPT"); ?></div>
+                <div><a href="#" class="footer-link"><?php echo t("Privacy Policy");?></a> &middot; <a href="#"
+                        class="footer-link"><?php echo t("Terms & Conditions");?></a></div>
             </div>
         </div>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
-
 </body>
 
 </html>

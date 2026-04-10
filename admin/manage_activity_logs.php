@@ -37,39 +37,66 @@ function decryptData($data,$key){
 $search = $_GET['search'] ?? '';
 $search = trim($search);
 
-if($search != ""){
-    $search_hash = hash_hmac('sha256', $search, $secret_key);
+/* LUÔN LẤY 100 LOG MỚI NHẤT */
+$query = "SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT 100";
+$result = mysqli_query($conn, $query);
 
-    $stmt = $conn->prepare("
-        SELECT * FROM activity_logs
-        WHERE username_hash = ? OR target_hash = ?
-        ORDER BY created_at DESC
-    ");
-    $stmt->bind_param("ss",$search_hash,$search_hash);
-    $stmt->execute();
-    $result = $stmt->get_result();
-}else{
-    $result = mysqli_query($conn,"SELECT * FROM activity_logs ORDER BY created_at DESC");
+$logs = [];
+
+while($row = mysqli_fetch_assoc($result)){
+
+    /* DECRYPT */
+    $username = decryptData($row['username_encrypted'], $secret_key);
+    $target   = decryptData($row['target_encrypted'], $secret_key);
+
+    /* NẾU KHÔNG SEARCH → LẤY HẾT */
+    if($search == ""){
+        $logs[] = $row;
+    }else{
+        /* SEARCH GẦN ĐÚNG (KHÔNG PHÂN BIỆT HOA THƯỜNG) */
+        if(
+            stripos($username, $search) !== false ||
+            stripos($target, $search) !== false
+        ){
+            $logs[] = $row;
+        }
+    }
 }
 
-/* ================= ACTION COLOR ================= */
+function getRoleClass($role){
+    $role = strtolower($role);
+
+    if($role == 'admin') return 'role-admin';
+    if($role == 'employee') return 'role-employee';
+    if($role == 'user') return 'role-user';
+
+    return '';
+}
+
+function maskIP($ip){
+    return preg_replace('/\.\d+$/', '.xxx', $ip);
+}
+
 function getActionClass($action){
     $action = strtolower($action);
 
     if(str_contains($action,'delete') || str_contains($action,'remove')){
-        return 'table-danger';
+        return 'badge bg-danger';
     }
     if(str_contains($action,'update') || str_contains($action,'edit')){
-        return 'table-warning';
+        return 'badge bg-warning text-dark';
     }
     if(str_contains($action,'add') || str_contains($action,'create')){
-        return 'table-success';
+        return 'badge bg-success';
     }
-    if(str_contains($action,'login') || str_contains($action,'logout')){
-        return 'table-primary';
+    if(str_contains($action,'login')){
+        return 'badge bg-primary';
+    }
+    if(str_contains($action,'logout')){
+        return 'badge bg-secondary';
     }
 
-    return '';
+    return 'badge bg-dark';
 }
 ?>
 
@@ -159,6 +186,36 @@ function getActionClass($action){
 
     .content.expanded {
         margin-left: 70px;
+    }
+
+    .role-admin,
+    .role-employee,
+    .role-user {
+        padding: 2px 6px;
+        /* nhỏ lại cho đỡ giống nút */
+        border-radius: 4px;
+        /* giảm bo tròn */
+        font-weight: 600;
+        display: inline;
+    }
+
+    /* ADMIN */
+    .role-admin {
+        color: #dc3545;
+        background: transparent;
+        /* ❗ bỏ nền */
+    }
+
+    /* EMPLOYEE */
+    .role-employee {
+        color: #856404;
+        background: transparent;
+    }
+
+    /* USER */
+    .role-user {
+        color: #155724;
+        background: transparent;
     }
     </style>
 </head>
@@ -261,25 +318,57 @@ function getActionClass($action){
                         <th>Target</th>
                         <th>IP Address</th>
                         <th>Browser</th>
+                        <th>Alert</th>
                         <th>Time</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php while($row=mysqli_fetch_assoc($result)){ 
-                            $username = decryptData($row['username_encrypted'],$secret_key) ?? "Unknown";
-                            $action = decryptData($row['action_encrypted'],$secret_key) ?? "";
-                            $target = decryptData($row['target_encrypted'],$secret_key) ?? "";
-                            $ip = decryptData($row['ip_address_encrypted'],$secret_key) ?? "";
-                            $ua = decryptData($row['user_agent_encrypted'],$secret_key) ?? "";
-                        ?>
+                    <?php foreach($logs as $row){
+    $username = decryptData($row['username_encrypted'],$secret_key) ?? "Unknown";
+    $action = decryptData($row['action_encrypted'],$secret_key) ?? "";
+    $target = decryptData($row['target_encrypted'],$secret_key) ?? "";
+    $ip = decryptData($row['ip_address_encrypted'],$secret_key) ?? "";
+    $ua = decryptData($row['user_agent_encrypted'],$secret_key) ?? "";
+?>
                     <tr>
                         <td><?php echo $row['id']; ?></td>
+
                         <td><?php echo htmlspecialchars($username); ?></td>
-                        <td><?php echo $row['role']; ?></td>
-                        <td><?php echo htmlspecialchars($action); ?></td>
+
+                        <!-- ROLE -->
+                        <td>
+                            <span class="<?php echo getRoleClass($row['role']); ?>">
+                                <?php echo $row['role']; ?>
+                            </span>
+                        </td>
+
+                        <!-- ACTION -->
+                        <td>
+                            <span class="<?php echo getActionClass($action); ?>">
+                                <?php echo htmlspecialchars($action); ?>
+                            </span>
+                        </td>
+
                         <td><?php echo htmlspecialchars($target); ?></td>
-                        <td><?php echo htmlspecialchars($ip); ?></td>
-                        <td style="max-width:250px;"><?php echo htmlspecialchars($ua); ?></td>
+                        <td><?php echo htmlspecialchars(maskIP($ip)); ?></td>
+                        <td style="max-width:250px;">
+                            <?php echo htmlspecialchars($ua); ?>
+                        </td>
+
+                        <td>
+                            <?php
+                                $alert = $row['alert_type'];
+
+                                if($alert == "HIGH"){
+                                    echo '<span class="badge bg-danger">HIGH</span>';
+                                }elseif($alert == "WARNING"){
+                                    echo '<span class="badge bg-warning text-dark">WARNING</span>';
+                                }else{
+                                    echo '<span class="badge bg-secondary">INFO</span>';
+                                }
+                            ?>
+                        </td>
+
                         <td><?php echo $row['created_at']; ?></td>
                     </tr>
                     <?php } ?>

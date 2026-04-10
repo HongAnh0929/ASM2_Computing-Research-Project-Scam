@@ -19,6 +19,6 @@ function decryptData($ciphertext_b64){
 }
 
 function hashData($data){
-    return hash("sha256", $data);
+    return hash_hmac("sha256", $data, $_ENV['SECRET_KEY']);
 }
 ?>

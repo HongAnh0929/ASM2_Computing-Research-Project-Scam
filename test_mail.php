@@ -1,7 +1,7 @@
 <?php
 require 'send_otp.php';
 
-$email = 'youremail@gmail.com';  // email nhận thử
+$email = 'honganh290905@gmail.com';  // email nhận thử
 $username = 'TestUser';
 $otp = rand(100000,999999);
 

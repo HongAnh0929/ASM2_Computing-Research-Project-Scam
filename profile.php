@@ -90,159 +90,164 @@ $created  = $user['created_at'];
 
     <style>
     html,
-body {
-    height: 100%;
-    margin: 0;
-    padding: 0;
-}
+    body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+    }
 
-body {
-    background-image: url("img/background.png");
-    background-size: cover;
-    background-position: center;
-    background-attachment: fixed;
-    padding-top: 50px;
-}
+    body {
+        background-image: url("img/background.png");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+        padding-top: 50px;
+    }
 
-/* Overlay làm mờ background */
-.overlay {
-    background: rgba(0, 0, 0, 0.55);
-    width: 100%;
-    min-height: calc(100vh - 50px); /* trừ navbar */
-    display: flex;
-    justify-content: center; /* canh giữa ngang */
-    align-items: flex-start; /* canh từ trên xuống */
-    padding-top: 60px;       /* cách navbar vừa phải */
-    padding-bottom: 40px;
-}
+    /* Overlay làm mờ background */
+    .overlay {
+        background: rgba(0, 0, 0, 0.55);
+        width: 100%;
+        min-height: calc(100vh - 50px);
+        /* trừ navbar */
+        display: flex;
+        justify-content: center;
+        /* canh giữa ngang */
+        align-items: flex-start;
+        /* canh từ trên xuống */
+        padding-top: 60px;
+        /* cách navbar vừa phải */
+        padding-bottom: 40px;
+    }
 
-/* Container bên trong overlay */
-.overlay .container {
-    padding: 0;
-    max-width: 100%;
-    display: flex;
-    justify-content: center;
-}
+    /* Container bên trong overlay */
+    .overlay .container {
+        padding: 0;
+        max-width: 100%;
+        display: flex;
+        justify-content: center;
+    }
 
-/* Nút đổi ngôn ngữ */
-.lang-btn {
-    display: flex;
-    align-items: center;
-    padding: 4px 10px;
-    border-radius: 6px;
-    font-size: 0.85rem;
-    font-weight: 600;
-    text-decoration: none;
-    transition: all 0.3s ease;
-    background: #f8f9fa;
-    color: #334155;
-    border: 1px solid #e2e8f0;
-}
+    /* Nút đổi ngôn ngữ */
+    .lang-btn {
+        display: flex;
+        align-items: center;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.3s ease;
+        background: #f8f9fa;
+        color: #334155;
+        border: 1px solid #e2e8f0;
+    }
 
-.lang-btn.active {
-    background: #0ea5e9;
-    color: white;
-    border-color: #0ea5e9;
-    box-shadow: 0 0 10px rgba(14, 165, 233, 0.4);
-}
+    .lang-btn.active {
+        background: #0ea5e9;
+        color: white;
+        border-color: #0ea5e9;
+        box-shadow: 0 0 10px rgba(14, 165, 233, 0.4);
+    }
 
-.lang-btn:hover:not(.active) {
-    background: #e2e8f0;
-    transform: translateY(-1px);
-}
+    .lang-btn:hover:not(.active) {
+        background: #e2e8f0;
+        transform: translateY(-1px);
+    }
 
-.flag-img {
-    width: 20px;
-    height: 15px;
-    object-fit: cover;
-    border-radius: 2px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
+    .flag-img {
+        width: 20px;
+        height: 15px;
+        object-fit: cover;
+        border-radius: 2px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
 
-/* Profile card */
-.profile-card {
-    background: white;
-    border-radius: 12px;
-    padding: 30px;         /* giảm padding card */
-    max-width: 500px;
-    width: 100%;
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
-}
+    /* Profile card */
+    .profile-card {
+        background: white;
+        border-radius: 12px;
+        padding: 30px;
+        /* giảm padding card */
+        max-width: 500px;
+        width: 100%;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+    }
 
-/* Tiêu đề card */
-.profile-card h3 {
-    font-weight: 700;
-    margin-bottom: 25px;
-    text-align: center;
-    color: #0ea5e9;
-}
+    /* Tiêu đề card */
+    .profile-card h3 {
+        font-weight: 700;
+        margin-bottom: 25px;
+        text-align: center;
+        color: #0ea5e9;
+    }
 
-/* Label */
-.profile-card label {
-    font-weight: 600;
-    color: #334155;
-}
+    /* Label */
+    .profile-card label {
+        font-weight: 600;
+        color: #334155;
+    }
 
-/* Input */
-.profile-card input.form-control {
-    background: #f1f5f9;
-    border: 1px solid #cbd5e1;
-    color: #1e293b;
-}
+    /* Input */
+    .profile-card input.form-control {
+        background: #f1f5f9;
+        border: 1px solid #cbd5e1;
+        color: #1e293b;
+    }
 
-.profile-card input.form-control:focus {
-    border-color: #0ea5e9;
-    box-shadow: 0 0 5px rgba(14, 165, 233, 0.5);
-}
+    .profile-card input.form-control:focus {
+        border-color: #0ea5e9;
+        box-shadow: 0 0 5px rgba(14, 165, 233, 0.5);
+    }
 
-/* Back button */
-.text-end a.btn {
-    background-color: #0ea5e9;
-    color: white;
-    border: none;
-}
+    /* Back button */
+    .text-end a.btn {
+        background-color: #0ea5e9;
+        color: white;
+        border: none;
+    }
 
-.text-end a.btn:hover {
-    background-color: #0284c7;
-}
+    .text-end a.btn:hover {
+        background-color: #0284c7;
+    }
 
-/* Navbar */
-.navbar {
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(6px);
-}
+    /* Navbar */
+    .navbar {
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(6px);
+    }
 
-/* Banner box (nếu dùng) */
-.banner-box {
-    border: 2px solid #000;
-    padding: 40px;
-    background: rgba(0, 0, 0, 0.7);
-    color: white;
-    min-height: 250px;
-    margin-top: 80px;
-    display: flex;
-    align-items: center;
-}
+    /* Banner box (nếu dùng) */
+    .banner-box {
+        border: 2px solid #000;
+        padding: 40px;
+        background: rgba(0, 0, 0, 0.7);
+        color: white;
+        min-height: 250px;
+        margin-top: 80px;
+        display: flex;
+        align-items: center;
+    }
 
-.banner-text {
-    max-width: 500px;
-}
+    .banner-text {
+        max-width: 500px;
+    }
 
-/* Footer */
-.footer-custom {
-    background: rgba(0, 0, 0, 0.75);
-    color: white;
-}
+    /* Footer */
+    .footer-custom {
+        background: rgba(0, 0, 0, 0.75);
+        color: white;
+    }
 
-.footer-link {
-    color: #ddd;
-    text-decoration: none;
-}
+    .footer-link {
+        color: #ddd;
+        text-decoration: none;
+    }
 
-.footer-link:hover {
-    color: white;
-    text-decoration: underline;
-}
+    .footer-link:hover {
+        color: white;
+        text-decoration: underline;
+    }
     </style>
 
 </head>
@@ -271,10 +276,11 @@ body {
                             href="phonenumber.php"><?php echo t("PHONE NUMBER");?></a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" aria-current="page" href="#"><?php echo t("URL");?></a>
+                        <a class="nav-link active" aria-current="page" href="scan_url.php"><?php echo t("URL");?></a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" aria-current="page" href="#"><?php echo t("EMAIL");?></a>
+                        <a class="nav-link active" aria-current="page"
+                            href="scan_email.php"><?php echo t("EMAIL");?></a>
                     </li>
                 </ul>
 
@@ -351,7 +357,7 @@ body {
             </div>
         </div>
     </nav>
-    
+
     <div class="overlay">
         <div class="container">
             <div class="profile-card">

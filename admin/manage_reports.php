@@ -1,14 +1,16 @@
 <?php
 session_start();
+
 require_once "../../Database/database.php";
-require_once '../../vendor/autoload.php';
+require_once "../../vendor/autoload.php";
+
+// ✅ DÙNG CHUNG SECURITY (QUAN TRỌNG)
+require_once "../functions/security.php";
 
 use Dotenv\Dotenv;
 
 $dotenv = Dotenv::createImmutable(__DIR__ . '/../');
 $dotenv->load();
-
-$secret_key = $_ENV['SECRET_KEY'] ?? die("SECRET_KEY missing");
 
 /* ===== CHECK ADMIN ===== */
 if(!isset($_SESSION['role']) || $_SESSION['role'] != "Admin"){
@@ -16,38 +18,19 @@ if(!isset($_SESSION['role']) || $_SESSION['role'] != "Admin"){
     exit;
 }
 
-/* ===== ENCRYPT ===== */
-function encryptData($data){
-    global $secret_key;
-    $iv = random_bytes(16);
-    $enc = openssl_encrypt($data,'aes-256-cbc',$secret_key,OPENSSL_RAW_DATA,$iv);
-    return base64_encode($iv.$enc);
-}
-
-function decryptData($data){
-    global $secret_key;
-    if(!$data) return "";
-    $data = base64_decode($data);
-    $iv = substr($data,0,16);
-    $enc = substr($data,16);
-    return openssl_decrypt($enc,'aes-256-cbc',$secret_key,OPENSSL_RAW_DATA,$iv);
-}
-
 /* ===== ACTIVITY LOG ===== */
 function logActivity($conn,$action,$target){
 
-    global $secret_key;
-
     $user_id = $_SESSION['user_id'] ?? null;
-    $username = $_SESSION['username'];
-    $role = $_SESSION['role'];
+    $username = $_SESSION['username'] ?? "Unknown";
+    $role = $_SESSION['role'] ?? "Unknown";
+    $ip = $_SERVER['REMOTE_ADDR'] ?? "";
+    $ua = $_SERVER['HTTP_USER_AGENT'] ?? "";
 
-    $ip = $_SERVER['REMOTE_ADDR'];
-    $ua = $_SERVER['HTTP_USER_AGENT'];
-
-    $username_hash = hash_hmac('sha256',$username,$secret_key);
-    $target_hash = hash_hmac('sha256',$target,$secret_key);
-    $ip_hash = hash_hmac('sha256',$ip,$secret_key);
+    // ✅ DÙNG HASH CHUNG
+    $username_hash = hashData($username);
+    $target_hash = hashData($target);
+    $ip_hash = hashData($ip);
 
     $stmt = $conn->prepare("
         INSERT INTO activity_logs
@@ -79,14 +62,17 @@ function logActivity($conn,$action,$target){
 
 /* ===== UPDATE STATUS ===== */
 if(isset($_GET['action']) && isset($_GET['id'])){
+
     $id = intval($_GET['id']);
     $status = $_GET['action'];
 
     if(in_array($status,['Accepted','Rejected'])){
+
         $stmt = $conn->prepare("UPDATE reports SET status=? WHERE id=?");
         $stmt->bind_param("si",$status,$id);
         $stmt->execute();
 
+        // lấy phone để log
         $res = $conn->prepare("SELECT phone_encrypted FROM reports WHERE id=?");
         $res->bind_param("i",$id);
         $res->execute();
@@ -103,9 +89,21 @@ if(isset($_GET['action']) && isset($_GET['id'])){
 
 /* ===== LIST ===== */
 $result = mysqli_query($conn,"SELECT * FROM reports ORDER BY created_at DESC");
+
+/* ===== COUNT REPORTS (ACCEPTED ONLY) ===== */
+$reportCount = [];
+
+$countRes = mysqli_query($conn,"
+    SELECT phone_hash, COUNT(*) as total
+    FROM reports
+    WHERE status='Accepted'
+    GROUP BY phone_hash
+");
+
+while($r = mysqli_fetch_assoc($countRes)){
+    $reportCount[$r['phone_hash']] = $r['total'];
+}
 ?>
-
-
 
 <!DOCTYPE html>
 <html lang="en">
@@ -292,70 +290,73 @@ $result = mysqli_query($conn,"SELECT * FROM reports ORDER BY created_at DESC");
                 </form>
 
             </div>
-            <table class="table table-bordered table-striped table-hover mt-4">
+
+            <table class="table table-bordered table-hover mt-4">
+
                 <thead class="table-dark">
                     <tr>
                         <th>ID</th>
                         <th>Phone</th>
-                        <th>Reported By</th>
-                        <th>Report Reason</th>
+                        <th>Reason</th>
                         <th>Comment</th>
+                        <th>Reports</th>
                         <th>Status</th>
-                        <th>Created at</th>
+                        <th>Time</th>
                         <th>Action</th>
                     </tr>
                 </thead>
+
                 <tbody>
+
                     <?php while($row = mysqli_fetch_assoc($result)):
-                $phone = decryptData($row['phone_encrypted'],$secret_key);
-                $reason = decryptData($row['report_reason_encrypted'],$secret_key);
-                $comment = decryptData($row['comment_encrypted'],$secret_key);
-                $count = $reportCount[$row['phone_hash']] ?? 0;
-                $status = $row['status'];
 
-                if($count >=5) $badge = "bg-danger";
-                elseif($count >=3) $badge = "bg-warning";
-                elseif($count >0) $badge = "bg-info";
-                else $badge = "bg-secondary";
+    $phone = decryptData($row['phone_encrypted']);
+    $reason = decryptData($row['report_reason_encrypted']);
+    $comment = decryptData($row['comment_encrypted']);
 
-                if($status == "Pending") echo "<span class='badge bg-warning text-dark'>$status</span>";
-                elseif($status == "Accepted") echo "<span class='badge bg-success'>$status</span>";
-                elseif($status == "Rejected") echo "<span class='badge bg-danger'>$status</span>";
-                else echo "<span class='badge bg-secondary'>$status</span>";
-            ?>
+    $count = $reportCount[$row['phone_hash']] ?? 0;
+
+    $status = $row['status'];
+
+    $badgeStatus = ($status=="Pending")?"bg-warning":
+                   (($status=="Accepted")?"bg-success":"bg-danger");
+?>
+
                     <tr>
                         <td><?php echo $row['id']; ?></td>
+
                         <td><?php echo htmlspecialchars($phone); ?></td>
-                        <td><span class="text-secondary">Anonymous</span></td>
-                        <td style="max-width:200px;"><?php echo htmlspecialchars($reason); ?></td>
+
+                        <td><?php echo htmlspecialchars($reason); ?></td>
+
                         <td><?php echo htmlspecialchars($comment); ?></td>
-                        <td><span class="badge <?php echo $badge; ?>"><?php echo $count; ?></span></td>
-                        <td class="status-<?php echo $status;?>"><?php echo $status;?></td>
-                        <td><?php echo $row['created_at']; ?></td>
+
                         <td>
-                            <a href="?accept=<?php echo $row['id']; ?>" class="btn btn-success btn-sm"
-                                onclick="return confirm('Accept this report?')"><i class="bi bi-check-circle"></i></a>
-                            <a href="?reject=<?php echo $row['id']; ?>" class="btn btn-danger btn-sm"
-                                onclick="return confirm('Reject this report?')"><i class="bi bi-x-circle"></i></a>
+                            <span class="badge bg-info"><?php echo $count; ?></span>
                         </td>
+
+                        <td>
+                            <span class="badge <?php echo $badgeStatus; ?>">
+                                <?php echo $status; ?>
+                            </span>
+                        </td>
+
+                        <td><?php echo $row['created_at']; ?></td>
+
+                        <td>
+                            <a href="?action=Accepted&id=<?php echo $row['id']; ?>" class="btn btn-success btn-sm">✔</a>
+
+                            <a href="?action=Rejected&id=<?php echo $row['id']; ?>" class="btn btn-danger btn-sm">✖</a>
+                        </td>
+
                     </tr>
+
                     <?php endwhile; ?>
+
                 </tbody>
             </table>
-            <a href="admin_dashboard.php" class="btn btn-secondary">Back</a>
-        </div>
-    </div>
 
-    <script>
-    function toggleSidebar() {
-        let sidebar = document.querySelector(".sidebar");
-        let content = document.querySelector(".content");
-        let topbar = document.querySelector(".topbar");
-        sidebar.classList.toggle("collapsed");
-        content.classList.toggle("expanded");
-        topbar.classList.toggle("expanded");
-    }
-    </script>
+        </div>
 
 </body>
 

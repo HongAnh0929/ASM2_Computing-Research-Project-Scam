@@ -37,7 +37,7 @@ function sendOTP($email, $username, $otp){
         $mail->isSMTP();
         $mail->Host       = your.gmail.com;
         $mail->SMTPAuth   = true;
-        $mail->Username   = yourgmail.gmail.com; // Gmail gửi
+        $mail->Username   = "honganh290905@gmail.com"; // Gmail gửi
         $mail->Password   = your_app_password;       // App Password Gmail
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port       = your_port;
