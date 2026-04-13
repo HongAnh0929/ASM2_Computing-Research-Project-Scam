@@ -12,6 +12,7 @@ if (empty($_SESSION['csrf'])) {
 require_once '../Database/database.php';
 require_once 'functions/translate.php';
 require_once 'functions/security.php';
+require_once 'logger.php';
 
 // Xử lý thay đổi ngôn ngữ
 if (isset($_GET['lang']) && in_array($_GET['lang'], ['en','vi'])) {
@@ -252,38 +253,61 @@ $risk_score=min($risk_score,100);
 /* =========================
 STATUS ENGINE
 ========================= */
-if($admin_flag){
 
-    $status_text="SCAM";
-    $status_class="scam-banner-red";
-    $status_desc="This number is flagged by system admin as dangerous.";
-    $status_icon='<svg xmlns="http://www.w3.org/2000/svg" height="48px" viewBox="0 -960 960 960" width="48px" fill="#FFFFFF"><path d="M480-281q14 0 24.5-10.5T515-316q0-14-10.5-24.5T480-351q-14 0-24.5 10.5T445-316q0 14 10.5 24.5T480-281Zm-30-144h60v-263h-60v263ZM330-120 120-330v-300l210-210h300l210 210v300L630-120H330Zm25-60h250l175-175v-250L605-780H355L180-605v250l175 175Zm125-300Z"/></svg> ';
+if ($admin_flag) {
 
-}
-elseif($risk_score>=70){
+    $status_text = "SCAM";
+    $status_class = "scam-banner-red";
+    $status_desc = "This number is flagged by system admin as dangerous.";
 
-    $status_text="SCAM";
-    $status_class="scam-banner-red";
-    $status_desc="This number has strong indicators of scam activity.";
-    $status_icon='<svg xmlns="http://www.w3.org/2000/svg" height="48px" viewBox="0 -960 960 960" width="48px" fill="#FFFFFF"><path d="M480-281q14 0 24.5-10.5T515-316q0-14-10.5-24.5T480-351q-14 0-24.5 10.5T445-316q0 14 10.5 24.5T480-281Zm-30-144h60v-263h-60v263ZM330-120 120-330v-300l210-210h300l210 210v300L630-120H330Zm25-60h250l175-175v-250L605-780H355L180-605v250l175 175Zm125-300Z"/></svg> ';
+    $status_icon = '<svg xmlns="http://www.w3.org/2000/svg" height="48px" viewBox="0 -960 960 960" width="48px" fill="#FFFFFF"><path d="M480-281q14 0 24.5-10.5T515-316q0-14-10.5-24.5T480-351q-14 0-24.5 10.5T445-316q0 14 10.5 24.5T480-281Zm-30-144h60v-263h-60v263ZM330-120 120-330v-300l210-210h300l210 210v300L630-120H330Zm25-60h250l175-175v-250L605-780H355L180-605v250l175 175Zm125-300Z"/></svg>';
 
 }
-elseif($risk_score >= 40 || $db_reports > 0){
+elseif ($risk_score >= 70) {
 
-    $status_text="SUSPICIOUS";
-    $status_class="scam-banner-orange";
-    $status_desc="This number may be suspicious based on community reports.";
-    $status_icon=' <svg xmlns="http://www.w3.org/2000/svg" height="40" viewBox="0 -960 960 960" width="40" fill="#dffa15"> <path d="M480-280q17 0 28.5-11.5T520-320q0-17-11.5-28.5T480-360q-17 0-28.5 11.5T440-320q0 17 11.5 28.5T480-280Zm-40-120h80v-280h-80v280Z"/> </svg> ';
+    $status_text = "SCAM";
+    $status_class = "scam-banner-red";
+    $status_desc = "This number has strong indicators of scam activity.";
 
-}
-else{
-
-    $status_text="NO DATA";
-    $status_class="scam-banner-gray";
-    $status_desc="No scam reports have been found for this number yet.";
-    $status_icon='<svg xmlns="http://www.w3.org/2000/svg" height="40px" viewBox="0 -960 960 960" width="40px" fill="#FFFF55"><path d="M505.17-290.15q10.16-10.16 10.16-25.17 0-15.01-10.15-25.18-10.16-10.17-25.17-10.17-15.01 0-25.18 10.16-10.16 10.15-10.16 25.17 0 15.01 10.15 25.17Q464.98-280 479.99-280q15.01 0 25.18-10.15Zm-56.5-145.18h66.66V-684h-66.66v248.67ZM480.18-80q-82.83 0-155.67-31.5-72.84-31.5-127.18-85.83Q143-251.67 111.5-324.56T80-480.33q0-82.88 31.5-155.78Q143-709 197.33-763q54.34-54 127.23-85.5T480.33-880q82.88 0 155.78 31.5Q709-817 763-763t85.5 127Q880-563 880-480.18q0 82.83-31.5 155.67Q817-251.67 763-197.46q-54 54.21-127 85.84Q563-80 480.18-80Zm.15-66.67q139 0 236-97.33t97-236.33q0-139-96.87-236-96.88-97-236.46-97-138.67 0-236 96.87-97.33 96.88-97.33 236.46 0 138.67 97.33 236 97.33 97.33 236.33 97.33ZM480-480Z"/></svg>';
+    $status_icon = '<svg xmlns="http://www.w3.org/2000/svg" height="48px" viewBox="0 -960 960 960" width="48px" fill="#FFFFFF"><path d="M480-281q14 0 24.5-10.5T515-316q0-14-10.5-24.5T480-351q-14 0-24.5 10.5T445-316q0 14 10.5 24.5T480-281Zm-30-144h60v-263h-60v263ZM330-120 120-330v-300l210-210h300l210 210v300L630-120H330Zm25-60h250l175-175v-250L605-780H355L180-605v250l175 175Zm125-300Z"/></svg>';
 
 }
+elseif ($risk_score >= 40 || $db_reports > 0) {
+
+    $status_text = "SUSPICIOUS";
+    $status_class = "scam-banner-orange";
+    $status_desc = "This number may be suspicious based on community reports.";
+
+    $status_icon = '<svg xmlns="http://www.w3.org/2000/svg" height="40" viewBox="0 -960 960 960" width="40" fill="#dffa15"><path d="M480-280q17 0 28.5-11.5T520-320q0-17-11.5-28.5T480-360q-17 0-28.5 11.5T440-320q0 17 11.5 28.5T480-280Zm-40-120h80v-280h-80v280Z"/></svg>';
+
+}
+else {
+
+    $status_text = "NO DATA";
+    $status_class = "scam-banner-gray";
+    $status_desc = "No scam reports have been found for this number yet.";
+
+    $status_icon = '<svg xmlns="http://www.w3.org/2000/svg" height="40px" viewBox="0 -960 960 960" width="40px" fill="#FFFF55"><path d="M505.17-290.15q10.16-10.16 10.16-25.17 0-15.01-10.15-25.18-10.16-10.17-25.17-10.17-15.01 0-25.18 10.16-10.16 10.15-10.16 25.17 0 15.01 10.15 25.17Q464.98-280 479.99-280q15.01 0 25.18-10.15Zm-56.5-145.18h66.66V-684h-66.66v248.67ZM480.18-80q-82.83 0-155.67-31.5-72.84-31.5-127.18-85.83Q143-251.67 111.5-324.56T80-480.33q0-82.88 31.5-155.78Q143-709 197.33-763q54.34-54 127.23-85.5T480.33-880q82.88 0 155.78 31.5Q709-817 763-763t85.5 127Q880-563 880-480.18q0 82.83-31.5 155.67Q817-251.67 763-197.46q-54 54.21-127 85.84Q563-80 480.18-80Zm.15-66.67q139 0 236-97.33t97-236.33q0-139-96.87-236-96.88-97-236.46-97-138.67 0-236 96.87-97.33 96.88-97.33 236.46 0 138.67 97.33 236 97.33 97.33 236.33 97.33ZM480-480Z"/></svg>';
+}
+
+/* ================= DEBUG LOG (FIXED) ================= 
+error_log("===== PHONE SCAN START =====");
+error_log("Phone: " . $phone);
+error_log("Carrier: " . $carrier);
+error_log("Type: " . $number_type);
+error_log("Risk Score: " . $risk_score);
+error_log("Status: " . $status_text);
+error_log("Time: " . date("Y-m-d H:i:s"));
+error_log("===== PHONE SCAN END =====");
+
+log_block("PHONE SCAN");
+
+log_line("📱 Phone: $phone");
+log_line("📡 Carrier: $carrier");
+log_line("📞 Type: $number_type");
+log_warning("Risk Score: $risk_score%");
+log_success("Status: $status_text");
+log_success("Time: " . date("Y-m-d H:i:s"));*/
 
 /* =========================
 FINAL VERDICT SYNC (OPTIONAL BUT STRONG)
@@ -333,7 +357,7 @@ function generateAI($phone, $carrier, $country, $reports, $risk, $type, $report_
     return "AI KEY NOT FOUND";
 }
 
-    $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=" . $api_key;
+    $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" . $api_key;
     $types = htmlspecialchars(implode(", ", $report_types));
     $admin_status = $admin_flag ? "FLAGGED AS DANGEROUS BY ADMIN" : "Neutral";
 

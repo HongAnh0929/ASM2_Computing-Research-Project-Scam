@@ -14,30 +14,40 @@ $dotenv = Dotenv::createImmutable(__DIR__);
 $dotenv->load();
 
 $secret_key = $_ENV['SECRET_KEY'] ?? die("SECRET_KEY missing");
+$CAPTCHA_SECRET = $_ENV['CAPTCHA_SECRET_KEY'] ?? '';
 
 $lang = $_SESSION['lang'] ?? 'en';
 $errors = [];
 
-/* ================= ENCRYPT ================= */
-function encryptData($data,$key){
-    $iv = random_bytes(16);
-    $encrypted = openssl_encrypt($data,'AES-256-CBC',$key,OPENSSL_RAW_DATA,$iv);
-    $hmac = hash_hmac('sha256',$iv.$encrypted,$key,true);
-    return base64_encode($iv.$encrypted.$hmac);
+/* ================= CSRF ================= */
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
-/* ================= LOG ACTIVITY ================= */
-function logActivity($conn, $user_id, $username, $role, $action, $target, $alert_type, $secret_key){
+/* ================= ENCRYPT ================= */
+function encryptData($data, $key)
+{
+    $iv = random_bytes(16);
+    $encrypted = openssl_encrypt($data, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
+    $hmac = hash_hmac('sha256', $iv . $encrypted, $key, true);
+    return base64_encode($iv . $encrypted . $hmac);
+}
 
-    $username_enc = encryptData($username,$secret_key);
-    $action_enc   = encryptData($action,$secret_key);
-    $target_enc   = encryptData($target,$secret_key);
-    $ip_enc       = encryptData($_SERVER['REMOTE_ADDR'],$secret_key);
-    $ua_enc       = encryptData($_SERVER['HTTP_USER_AGENT'],$secret_key);
+/* ================= LOG ================= */
+function logActivity($conn, $user_id, $username, $role, $action, $target, $alert_type, $secret_key)
+{
+    $username_enc = encryptData($username, $secret_key);
+    $action_enc   = encryptData($action, $secret_key);
+    $target_enc   = encryptData($target, $secret_key);
+    $ip           = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    $ua           = $_SERVER['HTTP_USER_AGENT'] ?? '';
 
-    $username_hash = hash_hmac('sha256',$username,$secret_key);
-    $target_hash   = hash_hmac('sha256',$target,$secret_key);
-    $ip_hash       = hash_hmac('sha256',$_SERVER['REMOTE_ADDR'],$secret_key);
+    $ip_enc = encryptData($ip, $secret_key);
+    $ua_enc = encryptData($ua, $secret_key);
+
+    $username_hash = hash_hmac('sha256', $username, $secret_key);
+    $target_hash   = hash_hmac('sha256', $target, $secret_key);
+    $ip_hash       = hash_hmac('sha256', $ip, $secret_key);
 
     $stmt = $conn->prepare("
         INSERT INTO activity_logs 
@@ -49,11 +59,8 @@ function logActivity($conn, $user_id, $username, $role, $action, $target, $alert
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
     ");
 
-    if(!$stmt){
-        die("Prepare failed: ".$conn->error);
-    }
-
-    $stmt->bind_param("isssssssssss",
+    $stmt->bind_param(
+        "isssssssssss",
         $user_id,
         $username_enc,
         $username_hash,
@@ -68,169 +75,159 @@ function logActivity($conn, $user_id, $username, $role, $action, $target, $alert
         $alert_type
     );
 
-    if(!$stmt->execute()){
-        die("Execute failed: ".$stmt->error);
-    }
+    $stmt->execute();
 }
 
-/* ================= LANGUAGE ================= */
-if (isset($_GET['lang']) && in_array($_GET['lang'], ['en','vi'])) {
+/* ================= POST ================= */
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-    $_SESSION['lang'] = $_GET['lang'];
-
-    // Lấy đúng trang hiện tại (không bị quay về index)
-    $currentPage = strtok($_SERVER["REQUEST_URI"], '?');
-
-    header("Location: $currentPage");
-    exit;
-}
-
-$lang = $_SESSION['lang'] ?? 'en';
-
-/* ================= CSRF ================= */
-if(empty($_SESSION['csrf_token'])){
-    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-}
-$csrf_token = $_SESSION['csrf_token'];
-
-/* ================= LOGIN ================= */
-if($_SERVER['REQUEST_METHOD'] === 'POST'){
-
-    if(!hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])){
+    /* ===== CSRF CHECK ===== */
+    if (
+        empty($_POST['csrf_token']) ||
+        !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])
+    ) {
         die("CSRF error");
     }
 
-    $username = trim($_POST['username']);
-    $password = $_POST['password'];
+    $username = trim($_POST['username'] ?? '');
+    $password = $_POST['password'] ?? '';
+    $captcha  = $_POST['g-recaptcha-response'] ?? '';
 
+    /* ===== VALIDATION ===== */
+    if ($username === '') $errors['username'] = "Username required";
+    if ($password === '') $errors['password'] = "Password required";
+
+    /* ===== CAPTCHA FIRST ===== */
+    if (!$captcha) {
+        $errors['captcha'] = "Captcha required";
+    } else {
+        $ch = curl_init("https://www.google.com/recaptcha/api/siteverify");
+
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query([
+                'secret' => $CAPTCHA_SECRET,
+                'response' => $captcha
+            ]),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 5
+        ]);
+
+        $verify = curl_exec($ch);
+        curl_close($ch);
+
+        $captcha_data = json_decode($verify, true);
+
+        if (empty($captcha_data['success'])) {
+            $errors['captcha'] = "Captcha failed";
+        }
+    }
+
+    /* ===== STOP IF ERROR ===== */
+    if (!empty($errors)) {
+        goto render;
+    }
+
+    /* ===== HASH ===== */
     $username_hash = hash_hmac('sha256', $username, $secret_key);
 
+    /* ===== QUERY USER ===== */
     $stmt = $conn->prepare("SELECT * FROM users WHERE username_hash=? LIMIT 1");
     $stmt->bind_param("s", $username_hash);
     $stmt->execute();
     $result = $stmt->get_result();
 
-    /* ===== CAPTCHA CHECK (FIXED) ===== */
-    $captcha_secret   = $_ENV['CAPTCHA_KEY'] ?? '';
-    $captcha_response = $_POST['g-recaptcha-response'] ?? '';
-
-    if(empty($captcha_response)){
-        $errors['captcha'] = "Please complete the CAPTCHA.";
-    } else {
-
-        $verify = file_get_contents(
-            "https://www.google.com/recaptcha/api/siteverify?secret=$captcha_secret&response=$captcha_response"
-        );
-
-        $captcha_data = json_decode($verify, true);
-
-        if(empty($captcha_data['success'])){
-            $errors['captcha'] = "CAPTCHA verification failed.";
-        }
-    }
-
-
-    /* ===== USER NOT FOUND ===== */
-    if($result->num_rows === 0){
+    if ($result->num_rows === 0) {
 
         logActivity($conn, null, $username, "Guest", "LOGIN_FAILED_USER", $username, "WARNING", $secret_key);
-
         $errors['general'] = "User not found";
+        goto render;
+    }
 
+    $user = $result->fetch_assoc();
+
+    /* ===== LOCK CHECK ===== */
+    if ($user['is_locked']) {
+        logActivity($conn, $user['id'], $username, $user['role'], "LOGIN_BLOCKED", $username, "HIGH", $secret_key);
+        $errors['general'] = "Account locked";
+        goto render;
+    }
+
+    if ($user['status'] === 'Blocked') {
+        logActivity($conn, $user['id'], $username, $user['role'], "LOGIN_BLOCKED_STATUS", $username, "HIGH", $secret_key);
+        $errors['general'] = "Account blocked";
+        goto render;
+    }
+
+    /* ===== PASSWORD CHECK ===== */
+    if (password_verify($password, $user['password'])) {
+
+        $conn->query("UPDATE users SET failed_attempts=0 WHERE id=" . $user['id']);
+
+        /* decrypt email */
+        $data = base64_decode($user['email_encrypted']);
+        $iv = substr($data, 0, 16);
+        $enc = substr($data, 16);
+        $email = openssl_decrypt($enc, 'aes-256-cbc', $secret_key, OPENSSL_RAW_DATA, $iv);
+
+        if (!$email) {
+            $errors['general'] = "Decrypt error";
+            goto render;
+        }
+
+        /* OTP */
+        $otp = random_int(100000, 999999);
+
+        $_SESSION['otp'] = password_hash($otp, PASSWORD_DEFAULT);
+        $_SESSION['otp_time'] = time();
+        $_SESSION['resend_count'] = 0;
+        $_SESSION['otp_attempts'] = 0;
+
+        $_SESSION['login_temp'] = [
+            'user_id' => $user['id'],
+            'username' => $username,
+            'role' => $user['role'],
+            'email' => $email
+        ];
+
+        sendOTPLogin($email, $username, $otp);
+
+        logActivity($conn, $user['id'], $username, $user['role'], "LOGIN_OTP_SENT", $username, "INFO", $secret_key);
+
+        $_SESSION['otp_message'] = "OTP sent";
+
+        header("Location: verify_otp_login.php");
+        exit;
+    }
+
+    /* ===== WRONG PASSWORD ===== */
+    $attempts = $user['failed_attempts'] + 1;
+
+    if ($attempts >= 5) {
+
+        $stmt = $conn->prepare("UPDATE users SET failed_attempts=?, is_locked=1, status='Blocked' WHERE id=?");
+        $stmt->bind_param("ii", $attempts, $user['id']);
+        $stmt->execute();
+
+        logActivity($conn, $user['id'], $username, $user['role'], "ACCOUNT_LOCKED", $username, "HIGH", $secret_key);
+
+        $errors['general'] = "Account locked";
     } else {
 
-        $user = $result->fetch_assoc();
+        $stmt = $conn->prepare("UPDATE users SET failed_attempts=? WHERE id=?");
+        $stmt->bind_param("ii", $attempts, $user['id']);
+        $stmt->execute();
 
-        /* ===== ACCOUNT LOCKED ===== */
-        if($user['is_locked']){
+        logActivity($conn, $user['id'], $username, $user['role'], "LOGIN_WRONG_PASSWORD", $username, "WARNING", $secret_key);
 
-            logActivity($conn, $user['id'], $username, $user['role'], "LOGIN_BLOCKED", $username, "HIGH", $secret_key);
-
-            $errors['general'] = "Account is locked";
-        }
-
-        /* ===== STATUS BLOCKED ===== */
-        elseif($user['status'] === 'Blocked'){
-
-            logActivity($conn, $user['id'], $username, $user['role'], "LOGIN_BLOCKED_STATUS", $username, "HIGH", $secret_key);
-
-            $errors['general'] = "Account has been blocked";
-        }
-
-        /* ===== PASSWORD CORRECT ===== */
-        elseif(password_verify($password, $user['password'])){
-
-            // reset failed attempts
-            $conn->query("UPDATE users SET failed_attempts=0 WHERE id=".$user['id']);
-
-            // decrypt email
-            $data = base64_decode($user['email_encrypted']);
-            $iv = substr($data,0,16);
-            $enc = substr($data,16);
-
-            $email = openssl_decrypt($enc,'aes-256-cbc',$secret_key,OPENSSL_RAW_DATA,$iv);
-
-            if(!$email){
-                $errors['general'] = "Cannot decrypt email";
-            } else {
-
-                // OTP
-                $otp = random_int(100000,999999);
-
-                $_SESSION['otp'] = password_hash($otp,PASSWORD_DEFAULT);
-                $_SESSION['otp_time'] = time();
-                $_SESSION['resend_count'] = 0;
-                $_SESSION['otp_attempts'] = 0;
-
-                $_SESSION['login_temp'] = [
-                    'user_id' => $user['id'],
-                    'username' => $username,
-                    'role' => $user['role'],
-                    'email' => $email
-                ];
-
-                sendOTPLogin($email,$username,$otp);
-
-                $_SESSION['otp_message'] = "OTP has been sent to your email.";
-
-                logActivity($conn, $user['id'], $username, $user['role'], "LOGIN_OTP_SENT", $username, "INFO", $secret_key);
-
-                header("Location: verify_otp_login.php");
-                exit;
-            }
-        }
-
-        /* ===== WRONG PASSWORD ===== */
-        else {
-
-            $attempts = $user['failed_attempts'] + 1;
-
-            if($attempts >= 5){
-
-                $conn->query("
-                    UPDATE users 
-                    SET failed_attempts=$attempts, is_locked=1, status='Blocked' 
-                    WHERE id=".$user['id']
-                );
-
-                logActivity($conn, $user['id'], $username, $user['role'], "ACCOUNT_LOCKED", $username, "HIGH", $secret_key);
-
-                $errors['general'] = "Account locked (too many attempts)";
-
-            } else {
-
-                $conn->query("UPDATE users SET failed_attempts=$attempts WHERE id=".$user['id']);
-
-                logActivity($conn, $user['id'], $username, $user['role'], "LOGIN_WRONG_PASSWORD", $username, "WARNING", $secret_key);
-
-                $errors['general'] = "Wrong password ($attempts/5)";
-            }
-        }
+        $errors['general'] = "Wrong password ($attempts/5)";
     }
 }
+
+/* ================= RENDER ================= */
+render:
+$csrf_token = $_SESSION['csrf_token'];
 ?>
-
-
 
 <!DOCTYPE html>
 <html lang="en">
@@ -315,6 +312,12 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
         box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
     }
 
+    .error {
+        color: red;
+        font-size: 13px;
+        margin-top: 5px;
+    }
+
     .links {
         display: flex;
         justify-content: space-between;
@@ -347,7 +350,7 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
             <div class="alert alert-danger text-center"><?php echo $errors['general']; ?></div>
             <?php endif; ?>
 
-            <form method="POST">
+            <form method="POST" novalidate>
 
                 <input type="hidden" name="csrf_token" value="<?php echo $csrf_token; ?>">
 
@@ -355,7 +358,9 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
 
                     <label class="form-label"><?php echo t("Username");?></label>
 
-                    <input type="text" class="form-control" name="username" required>
+                    <input type="text" class="form-control" name="username">
+
+                    <div class="text-danger"><?= $errors['username'] ?? '' ?></div>
 
                 </div>
 
@@ -365,7 +370,7 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
 
                     <div class="input-group">
 
-                        <input type="password" class="form-control" id="password" name="password" required>
+                        <input type="password" class="form-control" id="password" name="password">
 
                         <span class="input-group-text" onclick="togglePassword('password',this)">
                             <i class="bi bi-eye"></i>
@@ -373,12 +378,14 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
 
                     </div>
 
+                    <div class="text-danger"><?= $errors['password'] ?? '' ?></div>
+
                 </div>
 
                 <!-- CAPTCHA -->
                 <div class="mb-3">
-                    <div class="g-recaptcha" data-sitekey="6LdKbrAsAAAAAJBaGDJVPCrwjcSt9mnsyLGp_Iii"></div>
-                    <div class="error"><?php echo $errors['captcha'] ?? ''; ?></div>
+                    <div class="g-recaptcha" data-sitekey="<?php echo $_ENV['CAPTCHA_SITE_KEY']; ?>"></div>
+                    <div class="text-danger"><?= $errors['captcha'] ?? '' ?></div>
                 </div>
 
                 <div class="d-flex justify-content-between mt-3">

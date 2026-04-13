@@ -7,6 +7,7 @@ $dotenv->load();
 
 require_once '../Database/database.php';
 require_once 'functions/translate.php';
+require_once 'logger.php';
 
 /* ================= LANG SWITCH ================= */
 if (isset($_GET['lang']) && in_array($_GET['lang'], ['en','vi'])) {
@@ -34,7 +35,7 @@ function analyse_email_with_gemini($sender, $subject, $body, $attachments, $lang
         ];
     }
 
-    $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=" . $api_key;
+    $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" . $api_key;
     $attachmentDesc = empty($attachments) ? "none" : implode(', ', $attachments);
     $language_instruction = ($lang === 'vi') ? "Vietnamese" : "English";
 
@@ -134,14 +135,74 @@ function analyse_email_with_gemini($sender, $subject, $body, $attachments, $lang
     ];
 }
 
+/* =========================
+GAMBLING POST-PROCESSING FOR EMAIL
+========================= */
+/**
+ * Adjust AI analysis for gambling-related emails:
+ * - Emails advertising or about gambling: at least medium risk.
+ * - Add a clear gambling reason.
+ */
+function apply_gambling_rules_to_email(string $sender, string $subject, string $body, array $analysis): array {
+    global $lang;
+
+    $lowerSubject = strtolower($subject);
+    $lowerBody    = strtolower($body);
+    $lowerAll = strtolower($subject . " " . $body . " " . implode(" ", $analysis['reasons'] ?? []));
+
+    $keywords = ['casino','bet','betting','sportsbook','slot','jackpot','poker','baccarat','roulette','bookmaker','wager','lotto','lottery','gamble','gambling'];
+    $mentions = false;
+
+    foreach ($keywords as $kw) {
+        if (str_contains($lowerAll, $kw)) {
+            $mentions = true;
+            break;
+        }
+    }
+
+    if (!$mentions) {
+        return $analysis; // no gambling content detected
+    }
+
+    $risk = strtolower($analysis['risk_level'] ?? 'unknown');
+    if ($risk === 'low' || $risk === 'unknown') {
+        $risk = 'medium';
+    }
+
+    // Localised gambling reason/advice
+    if ($lang === 'vi') {
+        $reasonText = "Email này có nội dung liên quan đến cờ bạc/trò chơi cá cược trực tuyến, tiềm ẩn rủi ro tài chính và gây nghiện.";
+        $defaultAdvice = "Hãy cẩn trọng với email liên quan đến cờ bạc, tránh nhấp vào liên kết hoặc cung cấp thông tin tài chính.";
+    } else {
+        $reasonText = "This email appears to be related to online gambling or betting promotions, which can pose financial and addiction risks.";
+        $defaultAdvice = "Be cautious with gambling-related emails; avoid clicking links or sharing financial information.";
+    }
+
+    $analysis['risk_level'] = $risk;
+    if (!isset($analysis['reasons']) || !is_array($analysis['reasons'])) {
+        $analysis['reasons'] = [];
+    }
+    if (!in_array($reasonText, $analysis['reasons'], true)) {
+        $analysis['reasons'][] = $reasonText;
+    }
+
+    if (empty($analysis['advice'])) {
+        $analysis['advice'] = $defaultAdvice;
+    }
+
+    return $analysis;
+}
+
 /* ================= HANDLE POST ================= */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = $_POST['email_address'] ?? '';
     $subject = $_POST['email_subject'] ?? '';
     $content = $_POST['email_content'] ?? '';
-    $attachments = $_POST['attachments'] ?? [];
+    $attachments = $_SESSION['email_data']['attachments'] ?? [];
 
     $analysis = analyse_email_with_gemini($email, $subject, $content, $attachments, $lang);
+
+    $analysis = apply_gambling_rules_to_email($email, $subject, $content, $analysis);
 
     $_SESSION['analysis'] = $analysis;
     $_SESSION['email_data'] = compact('email','subject','content');
@@ -180,6 +241,32 @@ switch ($risk_level) {
         $color = '#6c757d';
         $percent = 0;
 }
+
+$email = $_SESSION['email_data']['email'] ?? '';
+$subject = $_SESSION['email_data']['subject'] ?? '';
+$content = $_SESSION['email_data']['content'] ?? '';
+$attachments = $_SESSION['email_data']['attachments'] ?? [];
+
+/* error_log("==== EMAIL SCAN START ====");
+error_log("LANG: " . ($lang ?? 'NOT SET'));
+error_log("SESSION EMAIL DATA: " . json_encode($_SESSION['email_data'] ?? []));
+
+error_log("==== GEMINI EMAIL REQUEST ====");
+error_log("Sender: " . $email);
+error_log("Subject: " . $subject);
+error_log("Body preview: " . substr($content, 0, 300));
+error_log("Attachments: " . json_encode($attachments));
+
+log_block("EMAIL SCAN");
+
+log_line("🌐 Language: $lang");
+log_line("📧 Sender: $email");
+log_line("📝 Subject: $subject");
+log_line("📄 Body: " . substr($content,0,150));
+log_line("📎 Attachments: " . json_encode($attachments));
+
+log_warning("Risk Level: $risk_level");
+log_success("AI analysis done");*/
 ?>
 
 <!DOCTYPE html>
@@ -475,53 +562,80 @@ switch ($risk_level) {
     </nav>
 
     <div class="overlay">
-        <div class="container py-5">
-            <div class="text-center text-white mb-4">
-                <h2><?php echo t("Email Scan Result"); ?></h2>
-            </div>
-            <div class="d-flex justify-content-center">
-                <div class="ai-box">
-                    <h3><?php echo t("AI Email Analysis"); ?></h3>
-                    <p><?php echo t("Risk Level"); ?>: <span
-                            style="color:<?php echo $color;?>"><?php echo $risk_level;?></span>
-                    </p>
-                    <div class="progress-circle" data-percent="<?php echo $percent;?>"
-                        data-color="<?php echo $color;?>">
-                        <span><?php echo $percent;?>%</span>
-                    </div>
+    <div class="container py-4">
 
-                    <?php if (!empty($analysis['reasons'])): ?>
-                    <h5><?php echo t("Reasons Detected"); ?>:</h5>
+        <!-- Title -->
+        <div class="text-center text-white mb-4">
+            <h2><?php echo t("Email Scan Result"); ?></h2>
+        </div>
+
+        <!-- CENTER WRAPPER -->
+        <div class="d-flex flex-column align-items-center gap-4">
+
+            <!-- AI ANALYSIS -->
+            <div class="ai-box w-100">
+                <h3><?php echo t("AI Email Analysis"); ?></h3>
+
+                <p>
+                    <?php echo t("Risk Level"); ?>:
+                    <span style="color:<?php echo $color;?>">
+                        <?php echo $risk_level;?>
+                    </span>
+                </p>
+
+                <div class="progress-circle"
+                    data-percent="<?php echo $percent;?>"
+                    data-color="<?php echo $color;?>">
+                    <span><?php echo $percent;?>%</span>
+                </div>
+
+                <?php if (!empty($analysis['reasons'])): ?>
+                    <h5 class="mt-3"><?php echo t("Reasons Detected"); ?>:</h5>
                     <ul>
                         <?php foreach ($analysis['reasons'] as $r): ?>
-                        <li><?php echo htmlspecialchars($r);?></li>
+                            <li><?php echo htmlspecialchars($r);?></li>
                         <?php endforeach;?>
                     </ul>
-                    <?php endif; ?>
+                <?php endif; ?>
 
-                    <?php if (!empty($analysis['advice'])): ?>
+                <?php if (!empty($analysis['advice'])): ?>
                     <h5><?php echo t("Advice"); ?>:</h5>
                     <p><?php echo nl2br(htmlspecialchars($analysis['advice']));?></p>
-                    <?php endif; ?>
-                </div>
+                <?php endif; ?>
             </div>
 
+            <!-- ORIGINAL EMAIL -->
             <?php if(!empty($email_address) && !empty($email_content)): ?>
-            <div class="original-email">
+            <div class="original-email w-100">
                 <h5><?php echo t("Original Email"); ?></h5>
-                <p><strong><?php echo t("From"); ?>:</strong> <?php echo htmlspecialchars($email_address); ?></p>
-                <p><strong><?php echo t("Subject"); ?>:</strong> <?php echo htmlspecialchars($email_subject); ?></p>
-                <p><strong><?php echo t("Attachments"); ?>:</strong>
-                    <?php echo empty($attachments)?t('None'):implode(', ', array_map('htmlspecialchars',$attachments)); ?>
+
+                <p><strong><?php echo t("From"); ?>:</strong>
+                    <?php echo htmlspecialchars($email_address); ?>
                 </p>
+
+                <p><strong><?php echo t("Subject"); ?>:</strong>
+                    <?php echo htmlspecialchars($email_subject); ?>
+                </p>
+
+                <p><strong><?php echo t("Attachments"); ?>:</strong>
+                    <?php echo empty($attachments)
+                        ? t('None')
+                        : implode(', ', array_map('htmlspecialchars',$attachments)); ?>
+                </p>
+
                 <pre><?php echo htmlspecialchars($email_content); ?></pre>
             </div>
             <?php endif; ?>
 
-            <a href="scan_email.php" class="btn btn-secondary btn-back">← <?php echo t("Back"); ?></a>
-        </div>
+            <!-- BACK BUTTON -->
+            <a href="scan_email.php" class="btn btn-secondary btn-back">
+                ← <?php echo t("Back"); ?>
+            </a>
 
+        </div>
     </div>
+</div>
+
 
     <!-- ================= FOOTER ================= -->
 

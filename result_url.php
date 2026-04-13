@@ -1,299 +1,427 @@
 <?php
 session_start();
+
 require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/../Database/database.php';
 require_once 'functions/translate.php';
+require_once 'logger.php';
 
-// =========================
-// LOAD ENV
-// =========================
 $dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
 $dotenv->load();
+
+$Parsedown = new Parsedown();
+$Parsedown->setSafeMode(true);
 
 $GEMINI_API_KEY = $_ENV['GEMINI_API_KEY'] ?? '';
 $GOOGLE_SAFEBROWSING_KEY = $_ENV['GOOGLE_SAFEBROWSING_KEY'] ?? '';
 $VIRUSTOTAL_KEY = $_ENV['VIRUSTOTAL_KEY'] ?? '';
 
-// =========================
-// Xử lý ngôn ngữ
-// =========================
-if (isset($_GET['lang']) && in_array($_GET['lang'], ['en','vi'])) {
-    $_SESSION['lang'] = $_GET['lang'];
-    $query = $_GET;
-    unset($query['lang']);
-    $newQuery = http_build_query($query);
-    $currentPage = strtok($_SERVER["REQUEST_URI"], '?');
-    header("Location: " . $currentPage . ($newQuery ? "?$newQuery" : ""));
+/* ================= INPUT ================= */
+$url_input = $_SESSION['scan_url'] ?? '';
+if (!$url_input) {
+    header('Location: scan_url.php');
     exit;
 }
+
+if (!filter_var($url_input, FILTER_VALIDATE_URL)) {
+    die("Invalid URL");
+}
+
 $lang = $_SESSION['lang'] ?? 'en';
 
-// =========================
-// ENCRYPT / DECRYPT
-// =========================
-function encryptData($data){
-    $key = $_ENV['APP_ENCRYPT_KEY'] ?? 'default_secret_key_32chars!!';
-    return openssl_encrypt($data, 'AES-256-CBC', substr(hash('sha256',$key,true),0,32), 0, substr(hash('sha256',$key,true),0,16));
-}
-function decryptData($data){
-    $key = $_ENV['APP_ENCRYPT_KEY'] ?? 'default_secret_key_32chars!!';
-    return openssl_decrypt($data, 'AES-256-CBC', substr(hash('sha256',$key,true),0,32), 0, substr(hash('sha256',$key,true),0,16));
+/* ================= RISK COLOR ================= */
+function risk_color($r){
+    return match(strtoupper($r)){
+        "LOW" => "#198754",
+        "MEDIUM" => "#ffc107",
+        "HIGH" => "#dc3545",
+        default => "#6c757d"
+    };
 }
 
-// =========================
-// GET URL
-// =========================
-$url_input = $_SESSION['scan_url'] ?? '';
-if(!$url_input){ header('Location: scan_url.php'); exit; }
-if(!filter_var($url_input, FILTER_VALIDATE_URL)){ die("Invalid URL"); }
-
-// =========================
-// PARSEDOWN
-// =========================
-$Parsedown = new Parsedown();
-$Parsedown->setSafeMode(true);
-
-// =========================
-// DETECT INDICATORS
-// =========================
+/* ================= INDICATORS (FIXED) ================= */
 function detect_indicators($url){
+
     $indicators = [];
-    $domain = parse_url($url, PHP_URL_HOST);
+    $host = parse_url($url, PHP_URL_HOST) ?? '';
 
     if(!str_starts_with($url,'https://')){
-        $indicators[] = ['title'=>t('No HTTPS'),'desc'=>t('Connection not secure'),'risk'=>40];
-    }
-    if($domain && strlen($domain) > 25){
-        $indicators[] = ['title'=>t('Suspicious domain'),'desc'=>t('Domain unusually long'),'risk'=>20];
+        $indicators[] = [
+            'title'=>'No HTTPS',
+            'desc'=>'Connection is not encrypted',
+            'risk'=>30
+        ];
     }
 
-    $brands = [
-        'Microsoft'=>'/microsoft|office365/i',
-        'Google'=>'/google|gmail|drive/i',
-        'Apple'=>'/apple|icloud/i',
-        'Facebook'=>'/facebook|fb/i',
-        'Amazon'=>'/amazon|aws/i',
-        'Paypal'=>'/paypal/i',
-        'Netflix'=>'/netflix/i'
-    ];
-    foreach($brands as $brand => $pattern){
-        if(preg_match($pattern,$url) && !preg_match('/(^|\.)'.strtolower($brand).'\.com$/i',$domain)){
-            $indicators[] = ['title'=>t('Brand impersonation'),'desc'=>t("Attempt to impersonate $brand"),'risk'=>30];
+    if(strlen($host) > 35){
+        $indicators[] = [
+            'title'=>'Suspicious domain length',
+            'desc'=>'Domain unusually long',
+            'risk'=>15
+        ];
+    }
+
+    $suspicious_words = ['login','secure','verify','update','password','bank'];
+
+    foreach($suspicious_words as $word){
+        if(stripos($url,$word) !== false && !str_contains($host,'microsoft.com') && !str_contains($host,'google.com')){
+            $indicators[] = [
+                'title'=>'Phishing keyword',
+                'desc'=>"Detected keyword: $word (context checked)",
+                'risk'=>10
+            ];
+        }
+    }
+
+    $official = ['google.com','facebook.com','apple.com','microsoft.com'];
+
+    foreach($official as $brand){
+        if(str_contains($host,$brand) && !preg_match("/(^|\.)$brand$/",$host)){
+            $indicators[] = [
+                'title'=>'Brand impersonation',
+                'desc'=>"Fake subdomain mimicking $brand",
+                'risk'=>40
+            ];
         }
     }
 
     return $indicators;
 }
 
-// =========================
-// GOOGLE SAFE BROWSING
-// =========================
-function check_google_safebrowsing($url) {
-    $apiKey = $_ENV['GOOGLE_SAFEBROWSING_KEY'] ?? '';
-    if (!$apiKey) return ['safe'=>null, 'desc'=>t("Google Safe Browsing API key missing")];
+/* ================= SAFE BROWSING ================= */
+function check_google_safebrowsing($url){
+    global $GOOGLE_SAFEBROWSING_KEY;
 
-    $endpoint = "https://safebrowsing.googleapis.com/v4/threatMatches:find?key=$apiKey";
+    if(!$GOOGLE_SAFEBROWSING_KEY){
+        return ['safe'=>true];
+    }
+
+    $endpoint = "https://safebrowsing.googleapis.com/v4/threatMatches:find?key=".$GOOGLE_SAFEBROWSING_KEY;
 
     $body = [
-        "client" => ["clientId" => "SCAM_BTEC","clientVersion" => "1.0"],
-        "threatInfo" => [
-            "threatTypes" => ["MALWARE","SOCIAL_ENGINEERING","UNWANTED_SOFTWARE","POTENTIALLY_HARMFUL_APPLICATION"],
-            "platformTypes" => ["ANY_PLATFORM"],
-            "threatEntryTypes" => ["URL"],
-            "threatEntries" => [["url" => $url]]
+        "client"=>["clientId"=>"scan","clientVersion"=>"1.0"],
+        "threatInfo"=>[
+            "threatTypes"=>["MALWARE","SOCIAL_ENGINEERING"],
+            "platformTypes"=>["ANY_PLATFORM"],
+            "threatEntryTypes"=>["URL"],
+            "threatEntries"=>[["url"=>$url]]
         ]
     ];
 
     $ch = curl_init($endpoint);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-        CURLOPT_POSTFIELDS => json_encode($body),
-        CURLOPT_TIMEOUT => 10
+    curl_setopt_array($ch,[
+        CURLOPT_RETURNTRANSFER=>true,
+        CURLOPT_POST=>true,
+        CURLOPT_HTTPHEADER=>['Content-Type: application/json'],
+        CURLOPT_POSTFIELDS=>json_encode($body)
     ]);
 
     $res = curl_exec($ch);
-    if ($res === false) return ['safe'=>null, 'desc'=>curl_error($ch)];
     curl_close($ch);
 
-    $json = json_decode($res, true);
-    if (!empty($json['matches'])) {
-        return ['safe'=>false, 'desc'=>t("Unsafe URL detected by Google Safe Browsing")];
-    }
-    return ['safe'=>true, 'desc'=>t("URL appears safe by Google Safe Browsing")];
-}
-
-// =========================
-// VIRUSTOTAL CHECK
-// =========================
-function check_virustotal($url) {
-    $apiKey = $_ENV['VIRUSTOTAL_KEY'] ?? '';
-    if (!$apiKey) return ['safe'=>null, 'desc'=>t("VirusTotal API key missing")];
-
-    $endpoint = "https://www.virustotal.com/api/v3/urls";
-    $data = ["url" => $url];
-
-    $ch = curl_init($endpoint);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_HTTPHEADER => ['x-apikey: '.$apiKey,'Content-Type: application/x-www-form-urlencoded'],
-        CURLOPT_POSTFIELDS => http_build_query($data),
-        CURLOPT_TIMEOUT => 10
-    ]);
-    $res = curl_exec($ch);
-    if ($res===false) return ['safe'=>null,'desc'=>curl_error($ch)];
     $json = json_decode($res,true);
-    if(isset($json['data']['id'])){
-        $analysis_id = $json['data']['id'];
-        $report_url = "https://www.virustotal.com/api/v3/analyses/$analysis_id";
 
-        $ch2 = curl_init($report_url);
-        curl_setopt_array($ch2, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => ['x-apikey: '.$apiKey],
-            CURLOPT_TIMEOUT => 10
-        ]);
-        $res2 = curl_exec($ch2);
-        curl_close($ch2);
-        $report = json_decode($res2,true);
-
-        $malicious = $report['data']['attributes']['stats']['malicious'] ?? 0;
-        if($malicious>0) return ['safe'=>false,'desc'=>t("Detected as malicious by VirusTotal")];
-        return ['safe'=>true,'desc'=>t("No threats found on VirusTotal")];
+    if(!empty($json['matches'])){
+        return ['safe'=>false,'desc'=>'Flagged by Google Safe Browsing'];
     }
 
-    return ['safe'=>null,'desc'=>t("VirusTotal scan unavailable")];
+    return ['safe'=>true];
 }
 
-// =========================
-// CALL AI
-// =========================
+/* ================= VIRUSTOTAL ================= */
+function check_virustotal($url){
+    global $VIRUSTOTAL_KEY;
+
+    if(!$VIRUSTOTAL_KEY){
+        return ['safe'=>true];
+    }
+
+    $ch = curl_init("https://www.virustotal.com/api/v3/urls");
+    curl_setopt_array($ch,[
+        CURLOPT_RETURNTRANSFER=>true,
+        CURLOPT_POST=>true,
+        CURLOPT_HTTPHEADER=>["x-apikey:$VIRUSTOTAL_KEY"],
+        CURLOPT_POSTFIELDS=>http_build_query(['url'=>$url])
+    ]);
+
+    $res = curl_exec($ch);
+    curl_close($ch);
+
+    $json = json_decode($res,true);
+
+    if(!isset($json['data']['id'])){
+        return ['safe'=>true];
+    }
+
+    $id = $json['data']['id'];
+
+    sleep(2);
+
+    $ch = curl_init("https://www.virustotal.com/api/v3/analyses/$id");
+    curl_setopt_array($ch,[
+        CURLOPT_RETURNTRANSFER=>true,
+        CURLOPT_HTTPHEADER=>["x-apikey:$VIRUSTOTAL_KEY"]
+    ]);
+
+    $res = curl_exec($ch);
+    curl_close($ch);
+
+    $report = json_decode($res,true);
+
+    $mal = $report['data']['attributes']['stats']['malicious'] ?? 0;
+
+    return ($mal > 0)
+        ? ['safe'=>false,'desc'=>"Detected malicious ($mal engines)"]
+        : ['safe'=>true];
+}
+
+/* =========================
+GAMBLING POST-PROCESSING
+========================= */
+/**
+ * Adjust AI analysis for gambling URLs/ads.
+ * - Gambling site itself: at least medium risk.
+ * - Site that advertises gambling: at least medium risk.
+ * - Always add a reason entry explaining the gambling context.
+ */
+function apply_gambling_rules(string $url, array $analysis): array {
+    global $lang;
+
+    $lowerUrl   = strtolower($url);
+    $lowerText  = strtolower(implode(" ", $analysis['reasons'] ?? []) . " " . ($analysis['advice'] ?? ''));
+
+    $keywords = ['casino','bet','betting','sportsbook','slot','jackpot','poker','baccarat','roulette','bookmaker','wager','lotto','lottery','gamble','gambling'];
+    $isGamblingUrl = false;
+
+    foreach ($keywords as $kw) {
+        if (str_contains($lowerUrl, $kw)) {
+            $isGamblingUrl = true;
+            break;
+        }
+    }
+
+    $mentionedGambling = false;
+    foreach ($keywords as $kw) {
+        if (str_contains($lowerText, $kw)) {
+            $mentionedGambling = true;
+            break;
+        }
+    }
+
+    if (!$isGamblingUrl && !$mentionedGambling) {
+        return $analysis; // nothing to change
+    }
+
+    $risk = strtolower($analysis['risk_level'] ?? 'unknown');
+
+    // Localised reason/advice templates
+    if ($lang === 'vi') {
+        $siteReason   = "Trang web này có vẻ là trang cờ bạc/cá cược trực tuyến, tiềm ẩn rủi ro tài chính và gây nghiện.";
+        $adReason     = "Trang web này có vẻ đang quảng cáo hoặc giới thiệu dịch vụ cờ bạc/cá cược trực tuyến.";
+        $defaultAdvice = "Hãy cẩn trọng với các trang liên quan đến cờ bạc, tránh nhấp vào liên kết và không cung cấp thông tin tài chính.";
+    } else {
+        $siteReason   = "This site appears to be a gambling or betting website, which carries financial and addiction risks.";
+        $adReason     = "This site appears to promote or advertise online gambling services.";
+        $defaultAdvice = "Be cautious with gambling-related sites; they can cause financial loss and may not be regulated.";
+    }
+
+    if ($isGamblingUrl) {
+        // The URL itself looks like a gambling site
+        if ($risk === 'low' || $risk === 'unknown') {
+            $risk = 'medium';
+        }
+        $reasonText = $siteReason;
+    } else {
+        // Site that advertises/promotes gambling
+        if ($risk === 'low' || $risk === 'unknown') {
+            $risk = 'medium';
+        }
+        $reasonText = $adReason;
+    }
+
+    $analysis['risk_level'] = $risk;
+    if (!isset($analysis['reasons']) || !is_array($analysis['reasons'])) {
+        $analysis['reasons'] = [];
+    }
+    if (!in_array($reasonText, $analysis['reasons'], true)) {
+        $analysis['reasons'][] = $reasonText;
+    }
+
+    if (empty($analysis['advice'])) {
+        $analysis['advice'] = $defaultAdvice;
+    }
+
+    return $analysis;
+
+}
+
+/* ================= AI ================= */
 function call_ai($url,$indicators,$score,$key,$lang){
-    if(!$key) return "❌ GEMINI API KEY MISSING";
+
+    if(!$key) return "";
 
     $endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=".$key;
-    $language_instruction = ($lang == 'vi') ? t("Write the report in Vietnamese.") : t("Write the report in English.");
 
-    $prompt = "You are an automated website analysis system.\n";
-    $prompt .= "Analyze the following URL and output in this exact format (Markdown with sections):\n\n";
-    $prompt .= "Detailed Technical Analysis\n--------------------------\n";
-    $prompt .= "[Provide a detailed technical analysis of the URL, its protocol, domain, and indicators]\n\n";
-    $prompt .= "Indicator Name (XX%): Explanation\n";
-    $prompt .= "User Warning\n------------\n";
-    $prompt .= "[Provide clear, urgent user warning with steps to protect themselves]\n\n";
-    $prompt .= "Conclusion\n----------\n";
-    $prompt .= "[Provide a concise conclusion summarizing the risk]\n\n";
+    // =========================
+    // AUTO LEVEL LOGIC
+    // =========================
+    if($score < 40){
+        $level = "LOW";
+        $instruction = "VERY SHORT SUMMARY ONLY (2-4 sentences max). No deep explanation. Focus on whether it is safe or not.";
+    }
+    elseif($score < 70){
+        $level = "MEDIUM";
+        $instruction = "MODERATE DETAIL. Explain key risks briefly, but do NOT over-explain.";
+    }
+    else{
+        $level = "HIGH";
+        $instruction = "DETAILED SECURITY ANALYSIS. Provide deep technical breakdown.";
+    }
+
+    // =========================
+    // PROMPT
+    // =========================
+    $prompt = "You are a cybersecurity analyst.\n\n";
+
+    $prompt .= "Analysis level: $instruction\n\n";
+
+    $prompt .= "You MUST follow this output format strictly:\n";
+    $prompt .= "Detailed Technical Analysis\nUser Warning\nConclusion\n\n";
+
+    $prompt .= "RULES:\n";
+    $prompt .= "- Do NOT repeat same information\n";
+    $prompt .= "- LOW = short safe summary only\n";
+    $prompt .= "- MEDIUM = moderate explanation\n";
+    $prompt .= "- HIGH = full deep analysis\n\n";
+    
+    $prompt .= "- Gambling-related URLs must always be at least MEDIUM risk\n";
+
     $prompt .= "URL: $url\n";
     $prompt .= "Risk Score: $score%\n";
+    $prompt .= "Risk Level: $level\n\n";
 
-    $data = ["contents"=>[["parts"=>[["text"=>$prompt]]]]];
+    $prompt .= "Indicators:\n";
+
+    foreach($indicators as $i){
+        $prompt .= "- {$i['title']} ({$i['risk']}%): {$i['desc']}\n";
+    }
+
+    // =========================
+    // REQUEST
+    // =========================
+    $data = [
+        "contents"=>[
+            ["parts"=>[
+                ["text"=>$prompt]
+            ]]
+        ]
+    ];
 
     $ch = curl_init($endpoint);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-        CURLOPT_POSTFIELDS => json_encode($data),
-        CURLOPT_CONNECTTIMEOUT => 5,
-        CURLOPT_TIMEOUT => 10
+    curl_setopt_array($ch,[
+        CURLOPT_RETURNTRANSFER=>true,
+        CURLOPT_POST=>true,
+        CURLOPT_HTTPHEADER=>['Content-Type: application/json'],
+        CURLOPT_POSTFIELDS=>json_encode($data),
+        CURLOPT_TIMEOUT=>30
     ]);
 
     $res = curl_exec($ch);
-    if($res===false) return "CURL ERROR: ".curl_error($ch);
-    $json = json_decode($res,true);
     curl_close($ch);
 
-    if(isset($json['error'])) return "API ERROR: ".$json['error']['message'];
-    return $json['candidates'][0]['content']['parts'][0]['text'] ?? "AI ERROR";
+    $json = json_decode($res,true);
+
+    return $json['candidates'][0]['content']['parts'][0]['text'] ?? "";
 }
 
-// =========================
-// CHECK CACHE
-// =========================
-$url_hash = hash('sha256',$url_input);
-$stmt = $conn->prepare("SELECT ai_encrypted, score_encrypted, risk_encrypted, indicators_encrypted FROM url_results WHERE url_hash=? LIMIT 1");
-$stmt->bind_param("s",$url_hash);
-$stmt->execute();
-$stmt->store_result();
-$cached = false;
-if($stmt->num_rows>0){
-    $stmt->bind_result($enc_ai,$enc_score,$enc_risk,$enc_indicators);
-    $stmt->fetch();
-    $ai_raw = decryptData($enc_ai);
-    $score = (int)decryptData($enc_score);
-    $risk = decryptData($enc_risk);
-    $indicators = json_decode(decryptData($enc_indicators),true);
-    $cached = true;
+/* ================= CLEAN AI ================= */
+function clean_ai($text){
+    return trim(str_replace(['```','**','###','---'], '', $text));
 }
 
-// =========================
-// RUN SCAN
-// =========================
-if(!$cached){
-    $indicators = detect_indicators($url_input);
+function highlight_text($text){
+    $keywords = [
+        'Brand impersonation',
+        'Google Safe Browsing',
+        'VirusTotal',
+        'Phishing keyword',
+        'HIGH RISK'
+    ];
 
-    // Google Safe Browsing
-    $gsb = check_google_safebrowsing($url_input);
-    if($gsb['safe']===false) $indicators[]=['title'=>t('Google Safe Browsing'),'desc'=>$gsb['desc'],'risk'=>50];
-
-    // VirusTotal
-    $vt = check_virustotal($url_input);
-    if($vt['safe']===false) $indicators[]=['title'=>t('VirusTotal'),'desc'=>$vt['desc'],'risk'=>50];
-
-    $score = min(array_sum(array_column($indicators,'risk')),100);
-    if ($score < 40) {
-        $risk = t('LOW');
-    } elseif ($score < 75) {
-        $risk = t('MEDIUM');
-    } else {
-        $risk = t('HIGH');
+    foreach($keywords as $k){
+        $text = str_replace(
+            $k,
+            "<span style='color:#dc3545;font-weight:700;'>$k</span>",
+            $text
+        );
     }
-    $ai_raw = call_ai($url_input,$indicators,$score,$GEMINI_API_KEY,$lang);
 
-    // =========================
-    // SAVE TO DATABASE
-    // =========================
-    $enc_url = encryptData($url_input);
-    $enc_indicators = encryptData(json_encode($indicators));
-    $enc_score = encryptData((string)$score);
-    $enc_risk = encryptData($risk);
-    $enc_ai = encryptData($ai_raw);
-
-    $stmt = $conn->prepare("
-        INSERT INTO url_results (url_encrypted,url_hash,indicators_encrypted,score_encrypted,risk_encrypted,ai_encrypted)
-        VALUES (?,?,?,?,?,?)
-        ON DUPLICATE KEY UPDATE updated_at=NOW()
-    ");
-    $stmt->bind_param("ssssss",$enc_url,$url_hash,$enc_indicators,$enc_score,$enc_risk,$enc_ai);
-    $stmt->execute();
+    return $text;
 }
 
-// =========================
-// SPLIT AI OUTPUT
-// =========================
-$technical_raw=$user_warning_raw=$conclusion_raw='';
-if(preg_match('/Detailed Technical Analysis\s*-+\s*(.*?)\nUser Warning\s*-+\s*(.*?)\nConclusion\s*-+\s*(.*)/si',$ai_raw,$m)){
-    $technical_raw=trim($m[1]);
-    $user_warning_raw=trim($m[2]);
-    $conclusion_raw=trim($m[3]);
-}else{
-    $technical_raw=$ai_raw;
-    $user_warning_raw=t("⚠️ Unable to split AI sections correctly");
-    $conclusion_raw=t("AI response format error");
+/* ================= PARSE ================= */
+function section($text,$start,$end=null){
+    $pattern = $end ? "/$start(.*)$end/s" : "/$start(.*)/s";
+    return preg_match($pattern,$text,$m) ? trim($m[1]) : '';
 }
 
-// Convert Markdown -> HTML
-$technical_html = $Parsedown->text($technical_raw);
-$user_warning_html = $Parsedown->text($user_warning_raw);
-$conclusion_html = $Parsedown->text($conclusion_raw);
+/* ================= MAIN ================= */
+$indicators = detect_indicators($url_input);
 
-// =========================
-// UTILS
-// =========================
-function risk_color($r){ return $r==t('LOW')?'green':($r==t('MEDIUM')?'orange':'red'); }
-$score_label_pos = max(5,min(95,$score));
+$gsb = check_google_safebrowsing($url_input);
+if(!$gsb['safe']){
+    $indicators[] = ['title'=>'Google Safe Browsing','desc'=>$gsb['desc'],'risk'=>80];
+}
+
+$vt = check_virustotal($url_input);
+if(!$vt['safe']){
+    $indicators[] = ['title'=>'VirusTotal','desc'=>$vt['desc'],'risk'=>80];
+}
+
+$score = min(array_sum(array_column($indicators,'risk')),100);
+
+$risk = ($score >= 70) ? "HIGH" : (($score >= 40) ? "MEDIUM" : "LOW");
+
+$ai_raw = clean_ai(call_ai($url_input,$indicators,$score,$GEMINI_API_KEY,$lang));
+
+$analysis = [
+    'risk_level' => $risk,
+    'reasons' => $indicators,
+    'advice' => ''
+];
+
+$analysis = apply_gambling_rules_to_url($url_input, $analysis);
+
+$risk = strtoupper($analysis['risk_level']);
+
+if(!$ai_raw){
+    $ai_raw = "Detailed Technical Analysis\nNo data available\nUser Warning\nNo warning\nConclusion\nNo conclusion";
+}
+
+$technical_html = nl2br(section($ai_raw,'Detailed Technical Analysis','User Warning'));
+$user_warning_html = nl2br(section($ai_raw,'User Warning','Conclusion'));
+$conclusion_html = nl2br(section($ai_raw,'Conclusion'));
+
+/* DEBUG 
+error_log("===== URL SCAN =====");
+error_log("URL: $url_input");
+error_log("Score: $score");
+error_log("Risk: $risk");
+error_log("Indicators: ".count($indicators));
+error_log("====================");
+
+log_block("URL SCAN");
+
+log_line("🌐 URL: $url_input");
+log_warning("Score: $score%");
+log_line("🔥 Risk: $risk");
+log_line("📊 Indicators: " . count($indicators));
+
+foreach($indicators as $i){
+    log_line("🔎 {$i['title']} ({$i['risk']}%)");
+}
+
+log_success("Scan completed");*/
 ?>
 
 <!DOCTYPE html>
@@ -367,44 +495,74 @@ $score_label_pos = max(5,min(95,$score));
         padding: 30px;
         background: #fff;
         border-radius: 12px;
-        margin-top: 100px;
+        margin-top: 60px;
+        /* 👈 giảm từ 100px xuống */
         box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
     }
 
     .url-box {
-        background: #f8f9fa;
-        padding: 15px 20px;
-        border-radius: 10px;
-        margin-bottom: 20px;
-        word-break: break-word;
+        font-size: 0.95rem;
+    }
+
+    .url-box a {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #0d6efd;
+        text-decoration: none;
+    }
+
+    .url-box a:hover {
+        text-decoration: underline;
+    }
+
+    .risk-wrapper {
+        margin-top: 25px;
+        /* 👈 đẩy xuống để không bị đè */
+        margin-bottom: 25px;
     }
 
     .risk-bar {
-        height: 25px;
-        border-radius: 12px;
+        height: 18px;
+        border-radius: 10px;
         background: #e9ecef;
+        overflow: visible;
         position: relative;
-        margin-top: 10px;
-        margin-bottom: 20px;
     }
 
-    .risk-bar-fill {
-        height: 100%;
-        background: linear-gradient(90deg, #22c55e, #facc15, #ef4444);
-        width: 0%;
-        transition: width 0.5s ease;
-    }
-
+    /* số % */
     .risk-bar-label {
         position: absolute;
         top: -28px;
         transform: translateX(-50%);
-        font-weight: bold;
-        font-size: 0.95rem;
-        color: #333;
+        font-weight: 700;
+        font-size: 13px;
+        background: white;
+        padding: 2px 8px;
+        border-radius: 6px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
         white-space: nowrap;
-        z-index: 10;
     }
+
+    .risk-bar-fill {
+    height: 100%;
+    width: 0%;
+    transition: width .5s ease;
+}
+
+/* LOW */
+.risk-bar.low .risk-bar-fill {
+    background: #22c55e;
+}
+
+/* MEDIUM */
+.risk-bar.medium .risk-bar-fill {
+    background: #facc15;
+}
+
+/* HIGH */
+.risk-bar.high .risk-bar-fill {
+    background: #ef4444;
+}
 
     /* Common card style cho tất cả box */
     .result-box {
@@ -600,25 +758,40 @@ $score_label_pos = max(5,min(95,$score));
             <div class="mb-3">
                 <b><?php echo t("Risk Level"); ?>:</b>
                 <span style="font-weight:700;color:<?=risk_color($risk)?>;font-size:1.2rem"><?=$risk?></span>
-                <div class="risk-bar">
-                    <div class="risk-bar-fill"></div>
-                    <div class="risk-bar-label"><?=$score?>%</div>
+                <div class="risk-wrapper">
+                    <div class="risk-bar <?= strtolower($risk) ?>">
+                        <div class="risk-bar-fill"></div>
+                        <div class="risk-bar-label" id="riskText"><?=$score?>%</div>
+                    </div>
                 </div>
             </div>
 
             <h4><?php echo t("Indicators"); ?></h4>
             <ul>
                 <?php foreach($indicators as $i): ?>
-                <?php 
-                    // Nổi bật Google Safe Browsing & VirusTotal
-                    $highlight = in_array($i['title'], [t('Google Safe Browsing'), t('VirusTotal')]) ? 'color:red;font-weight:bold;' : '';
+
+                <?php
+                $is_critical = in_array($i['title'], [
+                    'VirusTotal',
+                    'Google Safe Browsing',
+                    'Brand impersonation'
+                ]);
                 ?>
-                <li style="<?= $highlight ?>">
-                    <b><?=htmlspecialchars($i['title'])?> (<?=$i['risk']?>%)</b>
-                    <?php if(!empty($i['desc'])): ?>
-                    - <?=htmlspecialchars($i['desc'])?>
-                    <?php endif; ?>
+
+                <li style="<?= $is_critical ? 'background:#ffe5e5;padding:8px;border-radius:6px;' : '' ?>">
+
+                    <b style="<?= $is_critical ? 'color:#dc3545;font-size:16px;' : '' ?>">
+                        <?=htmlspecialchars($i['title'])?> (<?=$i['risk']?>%)
+                    </b>
+
+                    <br>
+
+                    <span>
+                        <?=htmlspecialchars($i['desc'])?>
+                    </span>
+
                 </li>
+
                 <?php endforeach; ?>
             </ul>
 
@@ -634,7 +807,7 @@ $score_label_pos = max(5,min(95,$score));
 
             <div class="result-box conclusion">
                 <h4><?php echo t("Conclusion"); ?></h4>
-                <div><?=$conclusion_html?></div>
+                <div><?= highlight_text($conclusion_html) ?></div>
             </div>
 
             <div class="text-center mt-4">
@@ -643,12 +816,51 @@ $score_label_pos = max(5,min(95,$score));
         </div>
     </div>
 
-    <script>
-    const barFill = document.querySelector('.risk-bar-fill');
-    const barLabel = document.querySelector('.risk-bar-label');
-    barFill.style.width = "<?=$score?>%";
-    barLabel.style.left = "<?=$score_label_pos?>%";
-    </script>
+    <!-- ================= FOOTER ================= -->
+
+    <footer class="py-3 border-top footer-custom">
+        <div class="container">
+            <div class="d-flex justify-content-between align-items-center small">
+
+                <div>
+                    <?php echo t("© 2026 Scam Detection Platform – BTEC FPT"); ?>
+                </div>
+
+                <div>
+                    <a href="#" class="footer-link"><?php echo t("Privacy Policy");?></a>
+                    &middot;
+                    <a href="#" class="footer-link"><?php echo t("Terms & Conditions");?></a>
+                </div>
+
+            </div>
+        </div>
+    </footer>
 </body>
 
 </html>
+
+<script>
+const score = Number(<?=json_encode($score)?>) || 0;
+
+window.addEventListener('DOMContentLoaded', () => {
+    const fill = document.querySelector('.risk-bar-fill');
+    const label = document.getElementById('riskText');
+
+    // fill thanh
+    if (fill) {
+        fill.style.width = score + "%";
+    }
+
+    // di chuyển số %
+    if (label) {
+        let pos = score;
+
+        // tránh bị tràn
+        if (pos < 5) pos = 5;
+        if (pos > 95) pos = 95;
+
+        label.style.left = pos + "%";
+        label.innerText = score + "%";
+    }
+});
+</script>

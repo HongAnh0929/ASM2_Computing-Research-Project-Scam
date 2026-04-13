@@ -146,31 +146,35 @@ if(isset($_POST['add_number'])){
     $stmt->bind_param("s",$phone_hash);
     $stmt->execute();
 
+    $error_add = "";
+
     if($stmt->get_result()->num_rows > 0){
-        die("Phone already exists");
+        $error_add = "Phone already exists";
     }
 
-    $stmt = $conn->prepare("
-        INSERT INTO phonenumbers
-        (phonenumber_encrypted, phonenumber_hash, type, country_encrypted, description_encrypted)
-        VALUES (?,?,?,?,?)
-    ");
+    if($error_add == ""){
+        $stmt = $conn->prepare("
+            INSERT INTO phonenumbers
+            (phonenumber_encrypted, phonenumber_hash, type, country_encrypted, description_encrypted)
+            VALUES (?,?,?,?,?)
+        ");
 
-    $stmt->bind_param(
-        "sssss",
-        encryptData($phone),
-        $phone_hash,
-        $type,
-        encryptData($country),
-        encryptData($description)
-    );
+        $stmt->bind_param(
+            "sssss",
+            encryptData($phone),
+            $phone_hash,
+            $type,
+            encryptData($country),
+            encryptData($description)
+        );
 
-    $stmt->execute();
+        $stmt->execute();
 
-    logActivity($conn,"ADD_NUMBER",$phone);
+        logActivity($conn,"ADD_NUMBER",$phone);
 
-    header("Location: manage_numbers.php");
-    exit;
+        header("Location: manage_numbers.php");
+        exit;
+    }
 }
 
 /* ================= UPDATE ================= */
@@ -473,6 +477,11 @@ if($action=='list'){
             <form method="POST">
                 <label class="mt-3">Phone Number</label>
                 <input type="text" name="phonenumber" class="form-control mb-2" required>
+                <?php if(!empty($error_add)): ?>
+                <div class="text-danger mb-2">
+                    <?php echo $error_add; ?>
+                </div>
+                <?php endif; ?>
                 <label class="mt-3">Type</label>
                 <select name="type" class="form-control mb-2">
                     <option>Legitimate</option>

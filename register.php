@@ -17,6 +17,7 @@ if(empty($_ENV['SECRET_KEY'])) die("SECRET_KEY missing");
 $HASH_KEY = $_ENV['SECRET_KEY'];
 $ENC_KEY  = $_ENV['SECRET_KEY'];
 
+
 /* ===== LANG ===== */
 // Xử lý thay đổi ngôn ngữ
 if (isset($_GET['lang']) && in_array($_GET['lang'], ['en','vi'])) {
@@ -51,13 +52,16 @@ $csrf_token = $_SESSION['csrf_token'];
 $errors = [];
 $username = $email = $phone = $dob = $gender = "";
 
-/* ===== HELPER ===== */
-function normalizePhone($phone){
-    $phone = preg_replace('/\D/', '', $phone);
-    if(substr($phone,0,1) == '0'){
-        $phone = '84'.substr($phone,1);
+function showError($errors, $key) {
+    if (!empty($errors[$key])) {
+        return '<div class="error">'.$errors[$key].'</div>';
     }
-    return $phone;
+    return '';
+}
+
+/* ===== PHONE ===== */
+function normalizePhone($phone){
+    return preg_replace('/\D/', '', $phone);
 }
 
 /* ===================== HANDLE POST ===================== */
@@ -79,36 +83,70 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
     $dob      = $_POST['dob'] ?? '';
     $gender   = $_POST['gender'] ?? '';
 
-    /* ===== CAPTCHA CHECK (FIXED) ===== */
-    $captcha_secret   = $_ENV['CAPTCHA_KEY'] ?? '';
+    /* ===== CAPTCHA (POST + CURL SAFE) ===== */
+    $captcha_secret   = $_ENV['CAPTCHA_SECRET_KEY'] ?? '';
     $captcha_response = $_POST['g-recaptcha-response'] ?? '';
 
-    if(empty($captcha_response)){
-        $errors['captcha'] = "Please complete the CAPTCHA.";
+    if (!$captcha_response) {
+        $errors['captcha'] = "Please complete CAPTCHA.";
     } else {
+        $ch = curl_init("https://www.google.com/recaptcha/api/siteverify");
 
-        $verify = file_get_contents(
-            "https://www.google.com/recaptcha/api/siteverify?secret=$captcha_secret&response=$captcha_response"
-        );
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query([
+                'secret' => $captcha_secret,
+                'response' => $captcha_response
+            ]),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 5
+        ]);
 
-        $captcha_data = json_decode($verify, true);
+        $verify = curl_exec($ch);
 
-        if(empty($captcha_data['success'])){
-            $errors['captcha'] = "CAPTCHA verification failed.";
+        if ($verify === false) {
+            $errors['captcha'] = "CAPTCHA connection error";
+        } else {
+            $captcha_data = json_decode($verify, true);
+
+            if (empty($captcha_data['success'])) {
+                $errors['captcha'] = "CAPTCHA failed.";
+            }
         }
     }
 
     /* ===== VALIDATION ===== */
-    if(!preg_match('/^[A-Za-z0-9_]{6,20}$/',$username)){
+    if (empty($username)) {
+    $errors['username'] = "Username cannot be empty";
+    } 
+    elseif(!preg_match('/^[A-Za-z0-9_]{6,20}$/',$username)){
         $errors['username'] = "Username must be 6-20 characters";
     }
 
-    if(!filter_var($email,FILTER_VALIDATE_EMAIL)){
-        $errors['email'] = "Invalid email";
+    if (empty($email)) {
+    $errors['email'] = "Invalid email";
+    }
+    elseif (!preg_match('/@gmail\.com$/', $email)) {
+        $errors['email'] = "Email must be @gmail.com";
+    }
+    elseif (empty($errors['email'])) {
+        // CHECK DUPLICATE ONLY WHEN VALID
+
+        $email_hash = hash_hmac('sha256', $email, $HASH_KEY);
+
+        $stmt = $conn->prepare("SELECT id FROM users WHERE email_hash=?");
+        $stmt->execute([$email_hash]);
+
+        if ($stmt->fetch()) {
+            $errors['email'] = "Email already exists";
+        }
     }
 
-    if(!preg_match('/^[0-9]{10}$/',$phoneRaw)){
-        $errors['phone'] = "Phone must be 10 digits";
+    if (empty($phone)) {
+        $errors['phone'] = "Phone number cannot be empty";
+    } 
+    elseif(!preg_match('/^[0-9]{10}$/',$phone)){
+        $errors['phone'] = "Phone number must start with 0 and be exactly 10 digits";
     }
 
     if(!$dob || $dob > date('Y-m-d')){
@@ -116,11 +154,11 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
     }
 
     if(!$gender){
-        $errors['gender'] = "Select gender";
+        $errors['gender'] = "Please select your gender";
     }
 
     if(!preg_match('/^(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[!@#$%^&*]).{8,20}$/',$password)){
-        $errors['password'] = "Weak password";
+        $errors['password'] = "Password must be 8–20 chars, include uppercase, lowercase, number, special character";
     }
 
     if($password !== $confirm){
@@ -137,9 +175,9 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
             'dob_encrypted'      => encryptData($dob),
             'gender_encrypted'   => encryptData($gender),
 
-            'username_hash' => hash_hmac('sha256',$username,$HASH_KEY),
-            'email_hash'    => hash_hmac('sha256',$email,$HASH_KEY),
-            'phone_hash'    => hash_hmac('sha256',$phone,$HASH_KEY),
+            'username_hash' => hash_hmac('sha256',$username,$HASH_KEY, false),
+            'email_hash'    => hash_hmac('sha256',$email,$HASH_KEY, false),
+            'phone_hash'    => hash_hmac('sha256',$phone,$HASH_KEY, false),
 
             'password' => password_hash($password,PASSWORD_DEFAULT)
         ];
@@ -334,17 +372,18 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
 
         <h3 class="text-center mb-4"><?php echo t("Register"); ?></h3>
 
-        <form method="POST">
+        <form method="POST" novalidate>
             <input type="hidden" name="csrf_token" value="<?php echo $csrf_token; ?>">
 
             <!-- Username -->
             <div class="mb-3">
                 <label class="form-label"><?php echo t("Username"); ?></label>
                 <input type="text" class="form-control" name="username" placeholder="<?php echo t("Enter username"); ?>"
-                    value="<?php echo htmlspecialchars($username); ?>" required>
-            </div>
-            <div class="error">
-                <?php echo $errors['username'] ?? '' ?>
+                    value="<?php echo htmlspecialchars($username); ?>">
+
+                <div class="error">
+                    <?php echo showError($errors, 'username'); ?>
+                </div>
             </div>
 
             <!-- Email -->
@@ -352,9 +391,10 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
                 <label class="form-label"><?php echo t("Email"); ?></label>
                 <input type="email" class="form-control" name="email" placeholder="<?php echo t("Enter email"); ?>"
                     value="<?php echo htmlspecialchars($email); ?>" required>
-            </div>
-            <div class="error">
-                <?php echo $errors['email'] ?? '' ?>
+
+                <div class="error">
+                    <?php echo showError($errors, 'email'); ?>
+                </div>
             </div>
 
             <!-- Phone -->
@@ -362,35 +402,48 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
                 <label class="form-label"><?php echo t("Phone"); ?></label>
                 <input type="text" class="form-control" name="phone" placeholder="<?php echo t("Enter phone"); ?>"
                     value="<?php echo htmlspecialchars($phone); ?>"
-                    oninput="this.value=this.value.replace(/[^0-9]/g,'')" pattern="[0-9]+" maxlength="11" required>
+                    oninput="this.value=this.value.replace(/[^0-9]/g,'')" pattern="[0-9]+" maxlength="11">
+
+                <div class="error">
+                    <?php echo showError($errors, 'phone'); ?>
+                </div>
             </div>
-            <div class="error">
-                <?php echo $errors['phone'] ?? '' ?>
-            </div>
+
 
             <!-- DOB -->
             <div class="mb-3">
                 <label><?php echo t("Date of Birth"); ?></label>
                 <input type="date" class="form-control" name="dob" max="<?php echo date('Y-m-d'); ?>"
-                    value="<?php echo htmlspecialchars($dob); ?>" required>
+                    value="<?php echo htmlspecialchars($dob); ?>">
+
+                <div class="error">
+                    <?php echo showError($errors, 'dob'); ?>
+                </div>
             </div>
+
 
             <!-- Gender -->
             <div class="mb-3">
                 <label><?php echo t("Gender"); ?></label>
-                <select class="form-control" name="gender" required>
+                <select class="form-control" name="gender">
                     <option value="">Select gender</option>
                     <option value="Male" <?php echo ($gender=="Male")?"selected":""; ?>>Male</option>
                     <option value="Female" <?php echo ($gender=="Female")?"selected":""; ?>>Female</option>
                 </select>
+
+                <div class="error">
+                    <?php echo showError($errors, 'gender'); ?>
+                </div>
             </div>
+
+
             <!-- Password -->
             <div class="mb-3">
                 <label class="form-label"><?php echo t("Password"); ?></label>
 
                 <div class="input-group">
                     <input type="password" class="form-control" id="password" name="password"
-                        placeholder="<?php echo t("Enter password"); ?>" onkeyup="checkStrength()" required>
+                        placeholder="<?php echo t("Enter password"); ?>" onkeyup="checkStrength()">
 
                     <span class="input-group-text" onclick="togglePassword('password',this)">
                         <i class="bi bi-eye"></i>
@@ -398,7 +451,9 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
                 </div>
 
                 <div id="strength" class="strength"></div>
-                <div class="error"><?php echo $errors['password'] ?? '' ?></div>
+                <div class="error">
+                    <?php echo showError($errors, 'password'); ?>
+                </div>
             </div>
 
             <!-- PASSWORD RULE -->
@@ -429,7 +484,7 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
 
                 <div class="input-group">
                     <input type="password" class="form-control" id="confirm" name="confirm_password"
-                        placeholder="<?php echo t("Confirm password"); ?>" onkeyup="checkStrength()" required>
+                        placeholder="<?php echo t("Confirm password"); ?>" onkeyup="checkStrength()">
 
                     <span class="input-group-text" onclick="togglePassword('confirm',this)">
                         <i class="bi bi-eye"></i>
@@ -437,14 +492,16 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
                 </div>
 
                 <div id="confirm-error" class="error">
-                    <?php echo $errors['confirm'] ?? '' ?>
+                    <?php echo showError($errors, 'confirm'); ?>
                 </div>
             </div>
 
             <!-- CAPTCHA -->
             <div class="mb-3">
-                <div class="g-recaptcha" data-sitekey="6LdKbrAsAAAAAJBaGDJVPCrwjcSt9mnsyLGp_Iii"></div>
-                <div class="error"><?php echo $errors['captcha'] ?? ''; ?></div>
+                <div class="g-recaptcha" data-sitekey="6Ld5eLMsAAAAADNQg1VE1CTWBgB5ey6J57dWM1DY"></div>
+                <div class="error">
+                    <?php echo showError($errors, 'captcha'); ?>
+                </div>
             </div>
 
             <div class="d-flex justify-content-between mt-4">
@@ -513,14 +570,19 @@ if($_SERVER['REQUEST_METHOD'] === 'POST'){
         let isValid = Object.values(rules).every(v => v === true);
 
         // Strength text
-        if (!pass) {
+        let score = Object.values(rules).filter(v => v).length;
+
+        if (pass.length === 0) {
             strength.innerHTML = "";
-        } else if (isValid) {
+        } else if (score <= 2) {
+            strength.innerHTML = "Weak password";
+            strength.style.color = "red";
+        } else if (score === 3 || score === 4) {
+            strength.innerHTML = "Medium password";
+            strength.style.color = "orange";
+        } else {
             strength.innerHTML = "Strong password";
             strength.style.color = "lightgreen";
-        } else {
-            strength.innerHTML = "Password not strong enough";
-            strength.style.color = "red";
         }
 
         // Confirm check
