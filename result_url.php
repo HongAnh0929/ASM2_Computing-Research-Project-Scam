@@ -175,92 +175,12 @@ function check_virustotal($url){
         : ['safe'=>true];
 }
 
-/* =========================
-GAMBLING POST-PROCESSING
-========================= */
-/**
- * Adjust AI analysis for gambling URLs/ads.
- * - Gambling site itself: at least medium risk.
- * - Site that advertises gambling: at least medium risk.
- * - Always add a reason entry explaining the gambling context.
- */
-function apply_gambling_rules(string $url, array $analysis): array {
-    global $lang;
-
-    $lowerUrl   = strtolower($url);
-    $lowerText  = strtolower(implode(" ", $analysis['reasons'] ?? []) . " " . ($analysis['advice'] ?? ''));
-
-    $keywords = ['casino','bet','betting','sportsbook','slot','jackpot','poker','baccarat','roulette','bookmaker','wager','lotto','lottery','gamble','gambling'];
-    $isGamblingUrl = false;
-
-    foreach ($keywords as $kw) {
-        if (str_contains($lowerUrl, $kw)) {
-            $isGamblingUrl = true;
-            break;
-        }
-    }
-
-    $mentionedGambling = false;
-    foreach ($keywords as $kw) {
-        if (str_contains($lowerText, $kw)) {
-            $mentionedGambling = true;
-            break;
-        }
-    }
-
-    if (!$isGamblingUrl && !$mentionedGambling) {
-        return $analysis; // nothing to change
-    }
-
-    $risk = strtolower($analysis['risk_level'] ?? 'unknown');
-
-    // Localised reason/advice templates
-    if ($lang === 'vi') {
-        $siteReason   = "Trang web này có vẻ là trang cờ bạc/cá cược trực tuyến, tiềm ẩn rủi ro tài chính và gây nghiện.";
-        $adReason     = "Trang web này có vẻ đang quảng cáo hoặc giới thiệu dịch vụ cờ bạc/cá cược trực tuyến.";
-        $defaultAdvice = "Hãy cẩn trọng với các trang liên quan đến cờ bạc, tránh nhấp vào liên kết và không cung cấp thông tin tài chính.";
-    } else {
-        $siteReason   = "This site appears to be a gambling or betting website, which carries financial and addiction risks.";
-        $adReason     = "This site appears to promote or advertise online gambling services.";
-        $defaultAdvice = "Be cautious with gambling-related sites; they can cause financial loss and may not be regulated.";
-    }
-
-    if ($isGamblingUrl) {
-        // The URL itself looks like a gambling site
-        if ($risk === 'low' || $risk === 'unknown') {
-            $risk = 'medium';
-        }
-        $reasonText = $siteReason;
-    } else {
-        // Site that advertises/promotes gambling
-        if ($risk === 'low' || $risk === 'unknown') {
-            $risk = 'medium';
-        }
-        $reasonText = $adReason;
-    }
-
-    $analysis['risk_level'] = $risk;
-    if (!isset($analysis['reasons']) || !is_array($analysis['reasons'])) {
-        $analysis['reasons'] = [];
-    }
-    if (!in_array($reasonText, $analysis['reasons'], true)) {
-        $analysis['reasons'][] = $reasonText;
-    }
-
-    if (empty($analysis['advice'])) {
-        $analysis['advice'] = $defaultAdvice;
-    }
-
-    return $analysis;
-
-}
-
 /* ================= AI ================= */
 function call_ai($url,$indicators,$score,$key,$lang){
 
     if(!$key) return "";
 
-    $endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=".$key;
+    $endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=".$key;
 
     // =========================
     // AUTO LEVEL LOGIC
@@ -294,8 +214,6 @@ function call_ai($url,$indicators,$score,$key,$lang){
     $prompt .= "- MEDIUM = moderate explanation\n";
     $prompt .= "- HIGH = full deep analysis\n\n";
     
-    $prompt .= "- Gambling-related URLs must always be at least MEDIUM risk\n";
-
     $prompt .= "URL: $url\n";
     $prompt .= "Risk Score: $score%\n";
     $prompt .= "Risk Level: $level\n\n";
@@ -389,8 +307,6 @@ $analysis = [
     'reasons' => $indicators,
     'advice' => ''
 ];
-
-$analysis = apply_gambling_rules_to_url($url_input, $analysis);
 
 $risk = strtoupper($analysis['risk_level']);
 
